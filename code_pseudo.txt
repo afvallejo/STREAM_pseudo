@@ -987,7 +987,7 @@ def run_analysis(b):
         "DATA_NAME": dataset_name,
         "LAYER": layer,
         "GENERATED": generated,
-        "DEG_PLOT": json.dumps(deg_plot_b64),
+        "DEG_PLOT": deg_plot_b64,
     }
     subs["TOOL_LICENSE"] = "MIT License"
     subs["DATA_LICENSE"] = "CC BY 4.0 (Example – replace per dataset)"

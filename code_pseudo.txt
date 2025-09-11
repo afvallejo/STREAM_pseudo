@@ -294,10 +294,6 @@ def run_analysis(b):
         None,
     )
 
-    if "COVID-19_vs_normal" in adata.obs.columns:
-        adata.obs["COVID-19_vs_normal"] = adata.obs["COVID-19_vs_normal"].astype("category")
-        sample_key = "COVID-19_vs_normal"
-
     obs_cats = sorted([c for c in adata.obs.select_dtypes(["category"]).columns])
 
     # Include common sample/group/treatment columns even if not categorical

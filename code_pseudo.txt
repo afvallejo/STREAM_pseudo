@@ -5,6 +5,7 @@ import json, uuid, textwrap, gzip, base64, io
 from string import Template
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 from matplotlib import colors
 import matplotlib.colors as mplc
 import scipy.sparse as sp
@@ -941,6 +942,7 @@ def run_analysis(b):
         relevel="normal",
         contrast_groups=("COVID-19", "normal"),
     )
+    deg_plot = plot_deg_counts(summary)
 
     analysis_progress.value = 5
     analysis_step.value = "Building dashboard"
@@ -985,6 +987,7 @@ def run_analysis(b):
         "DATA_NAME": dataset_name,
         "LAYER": layer,
         "GENERATED": generated,
+        "DEG_PLOT": deg_plot,
     }
     subs["TOOL_LICENSE"] = "MIT License"
     subs["DATA_LICENSE"] = "CC BY 4.0 (Example – replace per dataset)"
@@ -1743,5 +1746,42 @@ def run_edger_batch(
                      "up_n": up_n, "down_n": down_n,
                      "stdout": result.stdout, "stderr": result.stderr})
     return pd.DataFrame(runs)
+
+
+def plot_deg_counts(summary_df: pd.DataFrame,
+                    figsize=(8, 6),
+                    palette=("firebrick", "royalblue")) -> str:
+    """Return a base64 PNG of up/down DEG counts by cell type."""
+    df = summary_df.dropna(subset=["up_n", "down_n"]).copy()
+    if df.empty:
+        fig, ax = plt.subplots(figsize=(4, 3))
+        ax.text(0.5, 0.5, "No differential expression results",
+                ha="center", va="center")
+        ax.axis("off")
+    else:
+        df = df.sort_values("celltype")
+        plot_df = df.melt(id_vars="celltype",
+                          value_vars=["up_n", "down_n"],
+                          var_name="Direction", value_name="Count")
+        plot_df["Direction"] = plot_df["Direction"].map(
+            {"up_n": "Upregulated", "down_n": "Downregulated"})
+        sns.set_theme(style="white")
+        fig, ax = plt.subplots(figsize=figsize)
+        sns.scatterplot(data=plot_df, x="celltype", y="Count",
+                        hue="Direction", palette=palette, s=120,
+                        edgecolor="black", linewidth=0.6, ax=ax)
+        ax.set_xlabel("")
+        ax.set_ylabel("Number of DE genes", fontsize=14, weight="bold")
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=45,
+                           ha="right", fontsize=12)
+        ax.legend(frameon=False, fontsize=12, title="")
+        ax.set_title("Differentially Expressed Genes by Cell Type",
+                     fontsize=16, weight="bold", pad=15)
+        sns.despine(ax=ax)
+        plt.tight_layout()
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight")
+    plt.close(fig)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 

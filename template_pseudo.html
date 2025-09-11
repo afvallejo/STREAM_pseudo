@@ -50,7 +50,7 @@
     border-radius:calc(var(--radius) - 8px); border:1px solid var(--border); box-shadow:var(--shadow);
   }
   /* Card-like plot and table frames (no markup changes needed) */
-  [id$="Plot_§DOM"], [id^="clusterPlot_"], [id^="genePlot_"], [id^="markerUMAP_"],
+  [id$="Plot_§DOM"], [id^="clusterPlot_"], [id^="degPlot_"], [id^="markerUMAP_"],
   [id^="topMarkerUMAP_"], [id^="enrichUMAP_"], [id^="enrichViolin_"], [id^="tfUMAP_"],
     [id^="tfViolin_"], [id^="coexprPlot_§DOM"], #compBar, #dirichletForest{
       background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
@@ -210,35 +210,14 @@
   </li>
 </ul>
   <div id="summary" class="tabpane show">
-    <div class="d-flex gap-2 align-items-center mb-2">
-      <label class="form-label mb-0" for="geneInput_§DOM">RNA</label>
-      <input list="geneList_§DOM" id="geneInput_§DOM" class="form-control form-control-sm" style="max-width:260px" aria-describedby="geneFeedback_§DOM" placeholder="e.g., LST1" />
-      <datalist id="geneList_§DOM"></datalist>
-      <label class="form-label mb-0 protCtrl" for="proteinInput_§DOM">Protein</label>
-      <input list="protList_§DOM" id="proteinInput_§DOM" class="form-control form-control-sm protCtrl" style="max-width:260px" placeholder="e.g., CD3">
-      <datalist id="protList_§DOM"></datalist>
-      <label class="form-label mb-0 protCtrl" for="viewToggle_§DOM">View:</label>
-      <div class="btn-group btn-group-sm protCtrl" role="group" id="viewToggle_§DOM">
-        <input type="radio" class="btn-check" name="umapView_§DOM" id="viewRNA_§DOM" value="RNA" autocomplete="off">
-        <label class="btn btn-outline-secondary" for="viewRNA_§DOM">RNA</label>
-        <input type="radio" class="btn-check" name="umapView_§DOM" id="viewPROT_§DOM" value="PROT" autocomplete="off">
-        <label class="btn btn-outline-secondary" for="viewPROT_§DOM">Protein</label>
-        <input type="radio" class="btn-check" name="umapView_§DOM" id="viewBOTH_§DOM" value="BOTH" autocomplete="off">
-        <label class="btn btn-outline-secondary" for="viewBOTH_§DOM">Both</label>
-      </div>
-      <div class="form-check form-switch mb-0 protCtrl">
-        <input class="form-check-input" type="checkbox" id="linkRanges_§DOM" checked>
-        <label class="form-check-label" for="linkRanges_§DOM">Link ranges</label>
-      </div>
-      <button id="plotCluster_§DOM" class="btn btn-sm btn-secondary">Plot clusters</button>
-    </div>
-    <div id="geneFeedback_§DOM" class="visually-hidden" aria-live="polite"></div>
     <div class="row">
       <div class="col-md-6" id="clustCol_§DOM">
         <div id="clusterPlot_§DOM" class="plot-area"></div>
       </div>
-      <div class="col-md-6" id="rnaCol_§DOM">
-        <div id="genePlot_§DOM" class="plot-area"></div>
+      <div class="col-md-6">
+        <div id="degPlot_§DOM" class="plot-area">
+          <img src="data:image/png;base64,§DEG_PLOT" alt="Differential expression counts" style="width:100%;height:100%;object-fit:contain;" />
+        </div>
       </div>
     </div>
   </div>

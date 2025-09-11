@@ -2520,12 +2520,29 @@ function loadDEG(){
   const file=`${VOLCANO_DIR}${ct}_${CONTRAST}_edgeR_results.csv`;
   fetch(file).then(r=>r.text()).then(txt=>{
     const lines=txt.trim().split(/\n+/);
+    if(!lines.length) return;
     const hdr=lines.shift().split(',');
-    const gIdx=hdr.indexOf('gene');
-    const fcIdx=hdr.indexOf('logFC');
-    const fdrIdx=hdr.indexOf('FDR');
-    const sigIdx=hdr.indexOf('Sig');
-    DEG=lines.map(l=>{const v=l.split(',');return{gene:v[gIdx],logFC:+v[fcIdx],FDR:+v[fdrIdx],Sig:v[sigIdx]};});
+    const lower=hdr.map(h=>h.toLowerCase());
+    const idx=name=>{const i=lower.indexOf(name); return i>=0?i:null;};
+    const gIdx=idx('gene')??idx('gene_symbol')??0;
+    const fcIdx=idx('logfc')??idx('log2foldchange');
+    const fdrIdx=idx('fdr');
+    const sigIdx=idx('sig');
+    DEG=lines.filter(Boolean).map(l=>{
+      const v=l.split(',');
+      const fc=fcIdx!=null?+v[fcIdx]:0;
+      const fdr=fdrIdx!=null?+v[fdrIdx]:1;
+      let sig=sigIdx!=null?v[sigIdx]:'';
+      if(!sig){
+        sig=(fdr<0.05? (fc>0?'Up':'Down') : 'NotSig');
+      } else {
+        const s=sig.toLowerCase();
+        if(s.startsWith('up')) sig='Up';
+        else if(s.startsWith('down')) sig='Down';
+        else sig='NotSig';
+      }
+      return {gene:v[gIdx],logFC:fc,FDR:fdr,Sig:sig};
+    });
     const gsel=$('#geneSel_'+DOM).empty();
     DEG.forEach(d=>gsel.append(`<option value="${d.gene}">${d.gene}</option>`));
     if(DEG.length){gsel.val(DEG[0].gene);drawGeneBox();}

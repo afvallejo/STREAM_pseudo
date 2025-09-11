@@ -50,7 +50,7 @@
     border-radius:calc(var(--radius) - 8px); border:1px solid var(--border); box-shadow:var(--shadow);
   }
   /* Card-like plot and table frames (no markup changes needed) */
-  [id$="Plot_§DOM"], [id^="clusterPlot_"], [id^="degPlot_"], [id^="markerUMAP_"],
+  [id$="Plot_§DOM"], [id^="clusterPlot_"], [id^="markerUMAP_"],
   [id^="topMarkerUMAP_"], [id^="enrichUMAP_"], [id^="enrichViolin_"], [id^="tfUMAP_"],
     [id^="tfViolin_"], [id^="coexprPlot_§DOM"], #compBar, #dirichletForest{
       background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
@@ -215,9 +215,13 @@
         <div id="clusterPlot_§DOM" class="plot-area"></div>
       </div>
       <div class="col-md-6">
-        <div id="degPlot_§DOM" class="plot-area">
-          <img src="data:image/png;base64,§DEG_PLOT" alt="Differential expression counts" style="width:100%;height:100%;object-fit:contain;" />
+        <div class="d-flex align-items-center mb-2">
+          <label for="geneInput_§DOM" class="form-label me-2 mb-0">Gene</label>
+          <input id="geneInput_§DOM" list="geneList_§DOM" class="form-control form-control-sm" aria-describedby="geneFeedback_§DOM" placeholder="e.g., PTPRC" style="max-width:260px" />
+          <datalist id="geneList_§DOM"></datalist>
+          <div id="geneFeedback_§DOM" class="visually-hidden" aria-live="polite"></div>
         </div>
+        <div id="genePlot_§DOM" class="plot-area"></div>
       </div>
     </div>
   </div>
@@ -2110,7 +2114,7 @@ function showQCSub(sub){
 }
 window.addEventListener('hashchange',()=>{const {tab,sub}=parseHash(); if(tab) showTab(tab,sub);});
 const HELP_CONTENT={};
-HELP_CONTENT.summary=`<h5>Summary</h5><p>UMAP on the left and differential expression counts on the right.</p>`;
+HELP_CONTENT.summary=`<h5>Summary</h5><p>UMAP on the left and gene expression on the right. Use the gene selector to update the plot.</p>`;
 const TOUR_STEPS={
   qc_Overview:[
     "1. Use metric buttons to color the UMAP.",

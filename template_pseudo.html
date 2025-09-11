@@ -224,9 +224,7 @@
     <a class="nav-link" data-tab="composition" href="#">Composition</a>
   </li>
   <li class="nav-item">
-    <a class="nav-link" id="volcano-tab-link" data-bs-toggle="tab" href="#volcano-tab" role="tab" aria-controls="volcano-tab" aria-selected="false">
-      Volcano Plot
-    </a>
+    <a class="nav-link" data-tab="volcano" href="#">Volcano Plot</a>
   </li>
   <li class="nav-item">
     <a class="nav-link" data-tab="biology" href="#">AI Insights</a>
@@ -510,7 +508,7 @@ E2F1</textarea>
       </div>
     </div>
   </div>
-  <div class="tab-pane fade" id="volcano-tab" role="tabpanel" aria-labelledby="volcano-tab-link">
+  <div id="volcano" class="tabpane">
     <div class="container-fluid py-3">
       <!-- keep existing aesthetics; uses same container spacing -->
       <div class="row g-3 align-items-end">
@@ -2569,6 +2567,7 @@ function showTab(tab, sub){
   if(tab==='enrich') drawEnrich();
   if(tab==='tf') drawTF();
   if(tab==='coexpr') drawCoexpr();
+  if(tab==='volcano') showVolcano();
   if(tab==='qc'){
     const active=sub||'Overview';
     if(active==='Overview' && qcOverviewPurged){initQCOverview();}
@@ -3046,7 +3045,6 @@ $(function(){
     // If you later expose other facts, set them here similarly.
   })();
 </script>
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <script>
 // Config
 const CONTRAST_VAR = 'COVID-19_vs_normal';
@@ -3055,7 +3053,6 @@ const API_EDGER = (ct) => `/api/edger_results?celltype=${encodeURIComponent(ct)}
 const API_BOXPLOT = (ct, gene) => `/api/gene_boxplot?celltype=${encodeURIComponent(ct)}&gene=${encodeURIComponent(gene)}&contrast=${encodeURIComponent(CONTRAST_VAR)}`;
 
 // State
-let volcanoInit = false;
 let currentCelltype = null;
 let volcanoDataCache = {}; // {celltype: array of records}
 let currentGene = null;
@@ -3196,25 +3193,22 @@ async function drawBoxplot(celltype, gene) {
   setStatus('');
 }
 
-// Events
-document.getElementById('volcano-tab-link').addEventListener('shown.bs.tab', async () => {
-  // Initialize on first activation, then always redraw for freshness
+async function showVolcano() {
   await ensureCelltypes();
   if ($ct.value) currentCelltype = $ct.value;
 
   const rows = volcanoDataCache[currentCelltype] || await loadEdgeR(currentCelltype);
   drawVolcano(rows);
 
-  // Default gene
   const gene = currentGene || bestGene(rows);
   currentGene = gene;
   await drawBoxplot(currentCelltype, gene);
 
-  // Resize on tab show
   Plotly.Plots.resize($vol);
   Plotly.Plots.resize($box);
-});
+}
 
+// Events
 // React to celltype change
 $ct.addEventListener('change', async () => {
   currentCelltype = $ct.value;

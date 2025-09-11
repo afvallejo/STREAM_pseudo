@@ -17,6 +17,7 @@ import ipywidgets as widgets
 from IPython.display import display
 import sys
 import os
+import re
 import warnings
 from pandas.errors import PerformanceWarning
 from typing import Callable, Optional
@@ -293,6 +294,10 @@ def run_analysis(b):
         None,
     )
 
+    if "COVID-19_vs_normal" in adata.obs.columns:
+        adata.obs["COVID-19_vs_normal"] = adata.obs["COVID-19_vs_normal"].astype("category")
+        sample_key = "COVID-19_vs_normal"
+
     obs_cats = sorted([c for c in adata.obs.select_dtypes(["category"]).columns])
 
     # Include common sample/group/treatment columns even if not categorical
@@ -352,7 +357,7 @@ def run_analysis(b):
     celltype_candidates = [c for c in obs_cats if "cell" in c.lower() and "type" in c.lower()]
     celltype_var = celltype_candidates[0] if celltype_candidates else (obs_cats[0] if obs_cats else None)
 
-    contrast = ""
+    contrast = "COVID-19_vs_normal"
     edger_dir = Path("/content/edger_results")
     if edger_dir.exists():
         try:
@@ -361,7 +366,9 @@ def run_analysis(b):
             pass
         else:
             base = first_file.name.replace("_edgeR_results.csv", "")
-            contrast = base.split("_", 1)[1]
+            m = re.match(r"(.+)_(.+_vs_.+)$", base)
+            if m:
+                contrast = m.group(2)
 
     analysis_progress.value = 3
     analysis_step.value = "Finding marker genes"

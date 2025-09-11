@@ -224,6 +224,11 @@
     <a class="nav-link" data-tab="composition" href="#">Composition</a>
   </li>
   <li class="nav-item">
+    <a class="nav-link" id="volcano-tab-link" data-bs-toggle="tab" href="#volcano-tab" role="tab" aria-controls="volcano-tab" aria-selected="false">
+      Volcano Plot
+    </a>
+  </li>
+  <li class="nav-item">
     <a class="nav-link" data-tab="biology" href="#">AI Insights</a>
   </li>
   <li class="nav-item">
@@ -502,6 +507,47 @@ E2F1</textarea>
       <div class="col-12" id="dirichletPanel" style="display:none;">
         <div id="dirichletForest" style="width:100%;height:400px" class="mb-3"></div>
         <table id="dirichletTable" class="table table-sm table-hover"></table>
+      </div>
+    </div>
+  </div>
+  <div class="tab-pane fade" id="volcano-tab" role="tabpanel" aria-labelledby="volcano-tab-link">
+    <div class="container-fluid py-3">
+      <!-- keep existing aesthetics; uses same container spacing -->
+      <div class="row g-3 align-items-end">
+        <div class="col-md-4">
+          <label for="volcano-celltype" class="form-label">Cell type</label>
+          <select id="volcano-celltype" class="form-select"></select>
+        </div>
+        <div class="col-md-8 text-end">
+          <span id="volcano-status" class="text-muted small"></span>
+        </div>
+      </div>
+
+      <div class="row g-3 mt-1">
+        <div class="col-lg-5">
+          <div class="card h-100">
+            <div class="card-header py-2">
+              <strong>Gene expression</strong> <span id="boxplot-gene-label" class="text-muted"></span>
+            </div>
+            <div class="card-body">
+              <div id="gene-boxplot" style="width:100%;height:480px;"></div>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-7">
+          <div class="card h-100">
+            <div class="card-header py-2">
+              <strong>Volcano</strong> <span class="text-muted">log2FC vs −log10(FDR)</span>
+            </div>
+            <div class="card-body">
+              <div id="volcano-plot" style="width:100%;height:540px;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-2 small text-muted">
+        Click a point in the volcano to update the gene-expression box plot.
       </div>
     </div>
   </div>
@@ -2999,6 +3045,199 @@ $(function(){
     }
     // If you later expose other facts, set them here similarly.
   })();
+</script>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script>
+// Config
+const CONTRAST_VAR = 'COVID-19_vs_normal';
+const API_CELLTYPES = '/api/celltypes';
+const API_EDGER = (ct) => `/api/edger_results?celltype=${encodeURIComponent(ct)}&contrast=${encodeURIComponent(CONTRAST_VAR)}`;
+const API_BOXPLOT = (ct, gene) => `/api/gene_boxplot?celltype=${encodeURIComponent(ct)}&gene=${encodeURIComponent(gene)}&contrast=${encodeURIComponent(CONTRAST_VAR)}`;
+
+// State
+let volcanoInit = false;
+let currentCelltype = null;
+let volcanoDataCache = {}; // {celltype: array of records}
+let currentGene = null;
+
+// DOM
+const $ct = document.getElementById('volcano-celltype');
+const $status = document.getElementById('volcano-status');
+const $vol = document.getElementById('volcano-plot');
+const $box = document.getElementById('gene-boxplot');
+const $geneLbl = document.getElementById('boxplot-gene-label');
+
+// Helpers
+function setStatus(msg) { $status.textContent = msg || ''; }
+function toNum(x) { const v = Number(x); return Number.isFinite(v) ? v : NaN; }
+function bestGene(rows) {
+  // pick max -log10(FDR); fallback to max |log2FC|
+  let best = null, bestScore = -Infinity;
+  for (const r of rows) {
+    const y = toNum(r.neglog10FDR ?? r.neglog10fdr);
+    const s = Number.isFinite(y) ? y : Math.abs(toNum(r.log2FoldChange ?? r.log2fc ?? r.logfc));
+    if (Number.isFinite(s) && s > bestScore) { best = r.gene_symbol || r.gene || r.symbol; bestScore = s; }
+  }
+  return best || (rows[0]?.gene_symbol ?? null);
+}
+
+async function fetchJSON(url) {
+  const res = await fetch(url, { credentials: 'same-origin' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
+}
+
+async function ensureCelltypes() {
+  if ($ct.options.length) return;
+  setStatus('Loading cell types…');
+  const payload = await fetchJSON(API_CELLTYPES);
+  const cts = payload.celltypes || [];
+  $ct.innerHTML = '';
+  for (const c of cts) {
+    const opt = document.createElement('option');
+    opt.value = c; opt.textContent = c;
+    $ct.appendChild(opt);
+  }
+  if (cts.length) currentCelltype = cts[0];
+  setStatus('');
+}
+
+async function loadEdgeR(celltype) {
+  setStatus(`Loading edgeR results for ${celltype}…`);
+  const payload = await fetchJSON(API_EDGER(celltype));
+  const rows = (payload.records || []).filter(d => (d.gene_symbol ?? d.gene ?? d.symbol));
+  volcanoDataCache[celltype] = rows;
+  setStatus('');
+  return rows;
+}
+
+function drawVolcano(rows) {
+  // prepare arrays
+  const genes = rows.map(d => String(d.gene_symbol ?? d.gene ?? d.symbol));
+  const x = rows.map(d => toNum(d.log2FoldChange ?? d.log2fc ?? d.logfc));
+  const y = rows.map(d => {
+    const f = toNum(d.FDR ?? d.fdr ?? d.padj ?? d.qvalue);
+    const val = (f > 0) ? -Math.log10(f) : 16; // cap for zeros
+    return val;
+  });
+  const sig = rows.map(d => {
+    const fdr = toNum(d.FDR ?? d.fdr ?? d.padj ?? d.qvalue);
+    const l2 = toNum(d.log2FoldChange ?? d.log2fc ?? d.logfc);
+    return (Number.isFinite(fdr) && fdr < 0.05) && (Number.isFinite(l2) && Math.abs(l2) >= 1);
+  });
+
+  // split for performance and color control
+  const idxSig = [], idxBg = [];
+  sig.forEach((v,i) => (v ? idxSig : idxBg).push(i));
+
+  const traceBg = {
+    x: idxBg.map(i => x[i]),
+    y: idxBg.map(i => y[i]),
+    text: idxBg.map(i => genes[i]),
+    type: 'scattergl', mode: 'markers',
+    marker: { size: 5, opacity: 0.35 },
+    hovertemplate: '%{text}<br>log2FC=%{x:.2f}<br>-log10(FDR)=%{y:.2f}<extra></extra>',
+    name: 'Not significant'
+  };
+  const up = idxSig.filter(i => x[i] >= 0);
+  const down = idxSig.filter(i => x[i] < 0);
+
+  const traceUp = {
+    x: up.map(i => x[i]),
+    y: up.map(i => y[i]),
+    text: up.map(i => genes[i]),
+    type: 'scattergl', mode: 'markers',
+    marker: { size: 6 },
+    hovertemplate: '%{text}<br>log2FC=%{x:.2f}<br>-log10(FDR)=%{y:.2f}<extra></extra>',
+    name: 'Up (FDR<0.05 & |log2FC|≥1)'
+  };
+  const traceDown = {
+    x: down.map(i => x[i]),
+    y: down.map(i => y[i]),
+    text: down.map(i => genes[i]),
+    type: 'scattergl', mode: 'markers',
+    marker: { size: 6 },
+    hovertemplate: '%{text}<br>log2FC=%{x:.2f}<br>-log10(FDR)=%{y:.2f}<extra></extra>',
+    name: 'Down (FDR<0.05 & |log2FC|≥1)'
+  };
+
+  const layout = {
+    margin: { l: 50, r: 10, t: 10, b: 50 },
+    xaxis: { title: 'log2 fold-change', zeroline: true },
+    yaxis: { title: '-log10(FDR)' },
+    legend: { orientation: 'h', x: 0, y: 1.1 }
+  };
+
+  Plotly.react($vol, [traceBg, traceUp, traceDown], layout, {responsive: true, displaylogo: false});
+}
+
+async function drawBoxplot(celltype, gene) {
+  if (!gene) { Plotly.purge($box); $geneLbl.textContent = ''; return; }
+  setStatus(`Loading expression for ${gene}…`);
+  const payload = await fetchJSON(API_BOXPLOT(celltype, gene));
+  const names = payload.group_names || ['COVID-19','normal'];
+  const values = payload.values || [[],[]];
+
+  const traces = names.map((g, i) => ({
+    type: 'box',
+    name: g,
+    y: Array.isArray(values[i]) ? values[i] : [],
+    boxpoints: 'outliers'
+  }));
+
+  const layout = {
+    margin: { l: 50, r: 10, t: 10, b: 40 },
+    yaxis: { title: 'Expression' },
+    xaxis: { title: '' }
+  };
+
+  Plotly.react($box, traces, layout, {responsive: true, displaylogo: false});
+  $geneLbl.textContent = `• ${gene}`;
+  setStatus('');
+}
+
+// Events
+document.getElementById('volcano-tab-link').addEventListener('shown.bs.tab', async () => {
+  // Initialize on first activation, then always redraw for freshness
+  await ensureCelltypes();
+  if ($ct.value) currentCelltype = $ct.value;
+
+  const rows = volcanoDataCache[currentCelltype] || await loadEdgeR(currentCelltype);
+  drawVolcano(rows);
+
+  // Default gene
+  const gene = currentGene || bestGene(rows);
+  currentGene = gene;
+  await drawBoxplot(currentCelltype, gene);
+
+  // Resize on tab show
+  Plotly.Plots.resize($vol);
+  Plotly.Plots.resize($box);
+});
+
+// React to celltype change
+$ct.addEventListener('change', async () => {
+  currentCelltype = $ct.value;
+  const rows = await loadEdgeR(currentCelltype);
+  currentGene = bestGene(rows);
+  drawVolcano(rows);
+  await drawBoxplot(currentCelltype, currentGene);
+});
+
+// Click to update boxplot
+$vol.on('plotly_click', async (ev) => {
+  const p = ev?.points?.[0];
+  const gene = p?.text;
+  if (!gene) return;
+  currentGene = gene;
+  await drawBoxplot(currentCelltype, gene);
+});
+
+// Keep plots fresh on resize
+window.addEventListener('resize', () => {
+  Plotly.Plots.resize($vol);
+  Plotly.Plots.resize($box);
+});
 </script>
 </body>
 </html>

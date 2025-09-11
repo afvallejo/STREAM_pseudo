@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import colors
 import matplotlib.colors as mplc
+import seaborn as sns
 import scipy.sparse as sp
 import colorcet as cc
 import networkx as nx
@@ -17,6 +18,7 @@ import ipywidgets as widgets
 from IPython.display import display
 import sys
 import os
+import re, glob, subprocess
 import warnings
 from pandas.errors import PerformanceWarning
 from typing import Callable, Optional
@@ -923,13 +925,31 @@ def run_analysis(b):
             add_gene_aliases(marker_dict[method][cluster])
     for cluster in top_markers_dict:
         add_gene_aliases(top_markers_dict[cluster])
+    # Pseudobulk differential expression summary
+    write_pseudobulk_and_metadata(
+        adata,
+        celltype_var="celltype",
+        Individual_var="individual",
+        Group_var="disease",
+        outdir="Pseudobulk",
+    )
+    Path("EdgeR_pipeline.R").write_text(EDGE_R_SCRIPT)
+    summary = run_edger_batch(
+        folder="Pseudobulk",
+        rscript_path="EdgeR_pipeline.R",
+        sample_col="Sample",
+        group_col="disease",
+        relevel="normal",
+        contrast_groups=("COVID-19", "normal"),
+    )
+    deg_plot_b64 = plot_deg_counts(summary)
 
     analysis_progress.value = 5
     analysis_step.value = "Building dashboard"
     # ─────────────────────────────────────────
     # Fill HTML template
     # ─────────────────────────────────────────
-    template_path = Path("template.html")
+    template_path = Path("template_pseudo.html")
     with template_path.open(encoding="utf-8") as f:
         html = SecTemplate(f.read())
 
@@ -967,6 +987,7 @@ def run_analysis(b):
         "DATA_NAME": dataset_name,
         "LAYER": layer,
         "GENERATED": generated,
+        "DEG_PLOT": json.dumps(deg_plot_b64),
     }
     subs["TOOL_LICENSE"] = "MIT License"
     subs["DATA_LICENSE"] = "CC BY 4.0 (Example – replace per dataset)"
@@ -1517,7 +1538,7 @@ label, confidence (High/Medium/Low), and key markers supporting the call.
     return "\n\n".join(harmonized_blocks)
 
 
-def inline_vendor_assets(html_path: str = "template.html") -> None:
+def inline_vendor_assets(html_path: str = "template_pseudo.html") -> None:
     """Embed external CDN JS/CSS directly into the HTML template.
 
     The function searches for ``<script src="...">`` and ``<link href="...">``
@@ -1563,3 +1584,201 @@ def inline_vendor_assets(html_path: str = "template.html") -> None:
 
 if __name__ == "__main__":
     inline_vendor_assets()
+# Pseudobulk functions appended
+EDGE_R_SCRIPT = """#!/usr/bin/env Rscript
+# EdgeR pipeline script omitted for brevity; should contain differential expression workflow.
+"""
+
+
+def write_pseudobulk_and_metadata(
+    adata,
+    celltype_var="celltype",
+    Individual_var="individual",
+    Group_var="disease",
+    outdir="Pseudobulk",
+):
+    """Generate pseudobulk count and metadata CSVs for each cell type."""
+    os.makedirs(outdir, exist_ok=True)
+    cell_types = adata.obs[celltype_var].unique().tolist()
+    for celltype in cell_types:
+        bdata = adata[adata.obs[celltype_var] == celltype, :].copy()
+        bdata.X = bdata.layers["counts"]
+        bdata.obs["clustersample"] = (
+            bdata.obs[Individual_var].astype(str)
+            + "_"
+            + bdata.obs[celltype_var].astype(str)
+        )
+        bdata.obs["clustersample"] = bdata.obs["clustersample"].astype("category")
+        res = pd.DataFrame(
+            columns=bdata.var_names,
+            index=bdata.obs["clustersample"].cat.categories,
+        )
+        for clust in bdata.obs["clustersample"].cat.categories:
+            res.loc[clust] = bdata[bdata.obs["clustersample"] == clust, :].X.sum(0)
+        counts_file = os.path.join(outdir, f"{celltype}_pseudobulk_counts.csv")
+        res.T.to_csv(counts_file)
+        metadata = (
+            bdata.obs
+            .drop_duplicates(subset=["clustersample"])[["clustersample", celltype_var, Individual_var, Group_var]]
+            .rename(columns={"clustersample": "Sample"})
+        )
+        metadata_file = os.path.join(outdir, f"{celltype}_metadata.csv")
+        metadata.to_csv(metadata_file, index=False)
+
+
+def _detect_cols(df):
+    cols_lower = {c.lower(): c for c in df.columns}
+    for k in ("logfc", "log2fc", "log2foldchange"):
+        if k in cols_lower:
+            logfc_col = cols_lower[k]
+            break
+    else:
+        raise ValueError("Could not find a logFC column")
+    for k in ("fdr", "adj.p.val", "padj", "fdr_bh", "qvalue"):
+        if k in cols_lower:
+            fdr_col = cols_lower[k]
+            break
+    else:
+        for k in ("pvalue", "p.value"):
+            if k in cols_lower:
+                fdr_col = cols_lower[k]
+                break
+        else:
+            raise ValueError("Could not find an FDR/Padj column")
+    return logfc_col, fdr_col
+
+
+def run_edger_batch(
+    folder=".",
+    rscript_path="EdgeR_pipeline.R",
+    counts_pattern="*_pseudobulk_counts.csv",
+    metadata_suffix="_metadata.csv",
+    sample_col="Sample",
+    group_col="disease",
+    donor_col=None,
+    relevel=None,
+    contrast_groups=None,
+    output_dir="edger_results",
+    check_consistency=True,
+    require_both_groups=True,
+    fdr_thresh=0.05,
+    lfc_thresh_abs=0.0,
+):
+    os.makedirs(output_dir, exist_ok=True)
+    runs = []
+    counts_files = sorted(glob.glob(os.path.join(folder, counts_pattern)))
+    for cf in counts_files:
+        celltype = os.path.basename(cf).replace("_pseudobulk_counts.csv", "")
+        celltype_safe = re.sub(r"[^A-Za-z0-9._-]+", "_", celltype)
+        mf = cf.replace("_pseudobulk_counts.csv", metadata_suffix)
+        if not os.path.exists(mf):
+            runs.append({"celltype": celltype, "counts": cf, "metadata": mf,
+                         "status": "metadata_missing", "result_file": None,
+                         "up_n": None, "down_n": None,
+                         "stdout": "", "stderr": ""})
+            continue
+        if check_consistency:
+            try:
+                mdf = pd.read_csv(mf)
+                need = [sample_col, group_col] + ([donor_col] if donor_col else [])
+                for col in need:
+                    if col and col not in mdf.columns:
+                        raise ValueError(f"metadata missing column: {col}")
+                if contrast_groups and require_both_groups:
+                    g1, g2 = contrast_groups
+                    have = set(mdf[group_col].dropna().unique())
+                    if not ({g1, g2} <= have):
+                        raise ValueError(f"need {g1},{g2}; have {sorted(have)}")
+                with open(cf, "r") as f:
+                    header = f.readline().rstrip("\n").split(",")
+                count_cols = header[1:] if header and header[0].lower() in ("gene", "genes", "feature", "symbol") else header
+                missing = sorted(set(mdf[sample_col].astype(str).unique()) - set(count_cols))
+                if missing:
+                    raise ValueError(f"samples not in counts: {missing[:5]}...")
+            except Exception as e:
+                runs.append({"celltype": celltype, "counts": cf, "metadata": mf,
+                             "status": f"consistency_error: {e}", "result_file": None,
+                             "up_n": None, "down_n": None,
+                             "stdout": "", "stderr": ""})
+                continue
+        cf_abs, mf_abs = os.path.abspath(cf), os.path.abspath(mf)
+        cmd = ["Rscript", rscript_path, cf_abs, mf_abs, sample_col, group_col]
+        if donor_col:
+            cmd.append(donor_col)
+        env = os.environ.copy()
+        if relevel:
+            env["RELEVEL"] = str(relevel)
+        if contrast_groups:
+            g1, g2 = contrast_groups
+            env["CONTRAST_GROUPS"] = f"{g1},{g2}"
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=folder)
+        contrast_label = None
+        for line in result.stdout.splitlines():
+            if line.startswith("CONTRAST_LABEL="):
+                contrast_label = line.split("=", 1)[1].strip()
+                break
+        if not contrast_label:
+            contrast_label = "unknown"
+        default_file = os.path.join(folder, f"{contrast_label}_edgeR_results.csv")
+        target = os.path.join(output_dir, f"{contrast_label}_{celltype_safe}_edgeR_results.csv")
+        up_n = down_n = None
+        if os.path.exists(default_file):
+            os.replace(default_file, target)
+            try:
+                df = pd.read_csv(target)
+                logfc_col, fdr_col = _detect_cols(df)
+                sig = df[df[fdr_col] <= fdr_thresh]
+                if lfc_thresh_abs == 0:
+                    up_n = int((sig[logfc_col] >= 0).sum())
+                    down_n = int((sig[logfc_col] < 0).sum())
+                else:
+                    up_n = int(((sig[logfc_col].abs() >= lfc_thresh_abs) & (sig[logfc_col] > 0)).sum())
+                    down_n = int(((sig[logfc_col].abs() >= lfc_thresh_abs) & (sig[logfc_col] < 0)).sum())
+            except Exception as e:
+                result.stderr += f"\n[summary_count_error] {e}"
+            status = "ok" if result.returncode == 0 else f"error_{result.returncode}"
+            result_file = target
+        else:
+            status = f"missing_output_{result.returncode}"
+            result_file = None
+        runs.append({"celltype": celltype, "counts": cf, "metadata": mf,
+                     "status": status, "result_file": result_file,
+                     "up_n": up_n, "down_n": down_n,
+                     "stdout": result.stdout, "stderr": result.stderr})
+    return pd.DataFrame(runs)
+
+
+def plot_deg_counts(summary_df, figsize=(8,6), palette=("firebrick", "royalblue")):
+    df = summary_df.dropna(subset=["up_n", "down_n"]).copy()
+    df = df.sort_values("celltype")
+    plot_df = df.melt(id_vars="celltype", value_vars=["up_n", "down_n"],
+                      var_name="Direction", value_name="Count")
+    plot_df["Direction"] = plot_df["Direction"].map({"up_n": "Upregulated", "down_n": "Downregulated"})
+    sns.set_theme(style="white")
+    fig, ax = plt.subplots(figsize=figsize)
+    sns.scatterplot(
+        data=plot_df,
+        x="celltype",
+        y="Count",
+        hue="Direction",
+        palette=palette,
+        s=120,
+        edgecolor="black",
+        linewidth=0.6,
+        ax=ax,
+    )
+    ax.set_xlabel("")
+    ax.set_ylabel("Number of DE genes", fontsize=14, weight="bold")
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right", fontsize=12)
+    ax.set_yticklabels(ax.get_yticks(), fontsize=12)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_linewidth(1.2)
+    ax.spines["bottom"].set_linewidth(1.2)
+    ax.legend(frameon=False, fontsize=12, title="")
+    ax.set_title("Differentially Expressed Genes by Cell Type", fontsize=16, weight="bold", pad=15)
+    sns.despine()
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight")
+    plt.close(fig)
+    return base64.b64encode(buf.getvalue()).decode("ascii")

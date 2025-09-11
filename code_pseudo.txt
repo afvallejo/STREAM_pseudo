@@ -349,7 +349,19 @@ def run_analysis(b):
     for c in obs_cats:
         codes = adata.obs[c].cat.codes.to_numpy(dtype=np.uint16)
         obs_col_matrix[c] = pack_array(codes)
+    celltype_candidates = [c for c in obs_cats if "cell" in c.lower() and "type" in c.lower()]
+    celltype_var = celltype_candidates[0] if celltype_candidates else (obs_cats[0] if obs_cats else None)
 
+    contrast = ""
+    edger_dir = Path("/content/edger_results")
+    if edger_dir.exists():
+        try:
+            first_file = next(edger_dir.glob("*_edgeR_results.csv"))
+        except StopIteration:
+            pass
+        else:
+            base = first_file.name.replace("_edgeR_results.csv", "")
+            contrast = base.split("_", 1)[1]
 
     analysis_progress.value = 3
     analysis_step.value = "Finding marker genes"
@@ -964,6 +976,8 @@ def run_analysis(b):
         "CLUSTER_NAMES": json.dumps(pack_json(cluster_names)),
         "CLUSTER_COLORS_MAP": json.dumps(cluster_colors_map),
         "CLUSTER_COUNTS": json.dumps(pack_json(cluster_counts.tolist())),
+        "CELLTYPE_KEY": json.dumps(celltype_var),
+        "CONTRAST": json.dumps(contrast),
         "DATA_NAME": dataset_name,
         "LAYER": layer,
         "GENERATED": generated,

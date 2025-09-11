@@ -203,6 +203,9 @@
     <a class="nav-link active" data-tab="umap" href="#">Clusters &amp; Genes</a>
   </li>
   <li class="nav-item">
+    <a class="nav-link" data-tab="volcano" href="#">Volcano Plot</a>
+  </li>
+  <li class="nav-item">
     <a class="nav-link" data-tab="umapobs" href="#">Sample/Condition</a>
   </li>
   <li class="nav-item">
@@ -272,6 +275,22 @@
       </div>
       <div class="col-md-6 col-lg-4 d-none" id="protCol_§DOM">
         <div id="protPlot_§DOM" class="plot-area"></div>
+      </div>
+    </div>
+  </div>
+  <div id="volcano" class="tabpane">
+    <div class="d-flex gap-2 align-items-center mb-2">
+      <label class="form-label mb-0" for="celltypeSel_§DOM">Cell type</label>
+      <select id="celltypeSel_§DOM" class="form-select form-select-sm" style="max-width:200px"></select>
+      <label class="form-label mb-0" for="geneSel_§DOM">Gene</label>
+      <select id="geneSel_§DOM" class="form-select form-select-sm" style="max-width:200px"></select>
+    </div>
+    <div class="row">
+      <div class="col-md-6">
+        <div id="boxPlot_§DOM" class="plot-area"></div>
+      </div>
+      <div class="col-md-6">
+        <div id="volcano_§DOM" class="plot-area"></div>
       </div>
     </div>
   </div>
@@ -909,6 +928,12 @@ const OBS_CATS = §OBS_CATS;
 const OBS_LEVELS = §OBS_LEVELS;
 const OBS_COLORS = §OBS_COLORS;
 const SAMPLE_KEY = §SAMPLE_KEY;
+const CELLTYPE_KEY = §CELLTYPE_KEY;
+const CONTRAST = §CONTRAST;
+const VOLCANO_DIR = '/content/edger_results/';
+const SIGCOL = {Up:'#d62728',Down:'#1f77b4',NotSig:'#7f7f7f',NS:'#7f7f7f'};
+const CONTRAST_VAR = SAMPLE_KEY;
+let DEG=[], volcReady=false;
 const DIRICHLET = §DIRICHLET;
 const OBS_COL_MATRIX = Object.fromEntries(
   Object.entries(§OBS_COL_MATRIX||{}).map(([k,v])=>[k, inflateArray(v, Uint16Array)])
@@ -2479,8 +2504,70 @@ function drawCoexpr(){
     const h=idx.map(i=>hover[i]);
     const c=idx.map(i=>colors[i]);
     const trace={x:x,y:y,text:h,hovertemplate:LEIDEN+': %{text}<extra></extra>',mode:'markers',type:'scattergl',marker:{color:c,size:5,opacity:0.7}};
-    Plotly.newPlot('coexprPlot_'+DOM,[trace],{...PLOTLY_THEME.layout, hovermode:'closest'},PLOTLY_THEME.config);
-    updateLegend(mode, gA, gB);
+  Plotly.newPlot('coexprPlot_'+DOM,[trace],{...PLOTLY_THEME.layout, hovermode:'closest'},PLOTLY_THEME.config);
+  updateLegend(mode, gA, gB);
+}
+
+/* Volcano -------------------------------------------------------------- */
+function populateVolcanoCelltypes(){
+  const sel=$('#celltypeSel_'+DOM).empty();
+  const levels=OBS_LEVELS[CELLTYPE_KEY]||[];
+  levels.forEach(ct=>sel.append(`<option value="${ct}">${ct}</option>`));
+  if(levels.length){sel.val(levels[0]);loadDEG();}
+}
+function loadDEG(){
+  const ct=$('#celltypeSel_'+DOM).val();
+  if(!ct) return;
+  const file=`${VOLCANO_DIR}${ct}_${CONTRAST}_edgeR_results.csv`;
+  fetch(file).then(r=>r.text()).then(txt=>{
+    const lines=txt.trim().split(/\n+/);
+    const hdr=lines.shift().split(',');
+    const gIdx=hdr.indexOf('gene');
+    const fcIdx=hdr.indexOf('logFC');
+    const fdrIdx=hdr.indexOf('FDR');
+    const sigIdx=hdr.indexOf('Sig');
+    DEG=lines.map(l=>{const v=l.split(',');return{gene:v[gIdx],logFC:+v[fcIdx],FDR:+v[fdrIdx],Sig:v[sigIdx]};});
+    const gsel=$('#geneSel_'+DOM).empty();
+    DEG.forEach(d=>gsel.append(`<option value="${d.gene}">${d.gene}</option>`));
+    if(DEG.length){gsel.val(DEG[0].gene);drawGeneBox();}
+    volcReady=false;
+    drawVolcano();
+  });
+}
+function drawGeneBox(){
+  const gene=$('#geneSel_'+DOM).val();
+  if(!gene) return;
+  const expr=getExp(baseGene(gene));
+  const ctIdx=$('#celltypeSel_'+DOM).prop('selectedIndex');
+  const ctCodes=OBS_COL_MATRIX[CELLTYPE_KEY];
+  const condCodes=OBS_COL_MATRIX[CONTRAST_VAR];
+  const condLevels=OBS_LEVELS[CONTRAST_VAR]||[];
+  const groups=condLevels.map(()=>[]);
+  for(let i=0;i<NCELLS;i++){
+    if(ctCodes[i]===ctIdx){const gi=condCodes[i]; if(gi>=0&&gi<groups.length){groups[gi].push(expr[i]+PSEUDOCOUNT);}}
+  }
+  const traces=condLevels.map((lvl,i)=>({type:'box',y:groups[i],name:`${lvl} (n=${groups[i].length})`}));
+  Plotly.newPlot('boxPlot_'+DOM,traces,{...PLOTLY_THEME.layout,yaxis:{title:gene},xaxis:{title:CONTRAST_VAR},margin:{l:60,r:20,b:60,t:40}},PLOTLY_THEME.config);
+}
+function drawVolcano(){
+  if(volcReady){ Plotly.Plots.resize('volcano_'+DOM); return; }
+  Plotly.newPlot('volcano_'+DOM,[{
+      x:DEG.map(d=>d.logFC),
+      y:DEG.map(d=>-Math.log10(d.FDR+1e-300)),
+      text:DEG.map(d=>d.gene),
+      mode:'markers',
+      marker:{size:7,opacity:.8,color:DEG.map(d=>SIGCOL[d.Sig]||'#7f7f7f'),line:{width:.5,color:'#fff'}}
+    }],
+    {...PLOTLY_THEME.layout,
+       xaxis:{title:'log₂ FC'},
+       yaxis:{title:'-log₁₀ FDR'},
+       margin:{l:60,r:20,b:60,t:20}},
+    PLOTLY_THEME.config);
+  document.getElementById('volcano_'+DOM)
+          .on('plotly_click',ev=>{
+            $('#geneSel_'+DOM).val(ev.points[0].text).trigger('change');
+          });
+  volcReady=true;
 }
 
 function parseHash(){
@@ -2523,6 +2610,7 @@ function showTab(tab, sub){
   if(tab==='enrich') drawEnrich();
   if(tab==='tf') drawTF();
   if(tab==='coexpr') drawCoexpr();
+  if(tab==='volcano'){drawGeneBox(); drawVolcano();}
   if(tab==='qc'){
     const active=sub||'Overview';
     if(active==='Overview' && qcOverviewPurged){initQCOverview();}
@@ -2794,6 +2882,9 @@ $(function(){
   }
   populateGenes();
   populateProteins();
+  populateVolcanoCelltypes();
+  $('#celltypeSel_'+DOM).on('change',loadDEG);
+  $('#geneSel_'+DOM).on('change',drawGeneBox);
   const rand=GENES[Math.floor(Math.random()*GENES.length)];
   $("#geneInput_"+DOM).val(rand);
   if(PROT_GENES.length===0){

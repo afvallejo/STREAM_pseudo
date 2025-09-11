@@ -209,22 +209,16 @@
     <button id="helpChip" class="btn btn-sm btn-outline-secondary">Help</button>
   </li>
 </ul>
-  <div id="summary" class="tabpane show">
-    <div class="row">
-      <div class="col-md-6" id="clustCol_§DOM">
-        <div id="clusterPlot_§DOM" class="plot-area"></div>
-      </div>
-      <div class="col-md-6">
-        <div class="d-flex align-items-center mb-2">
-          <label for="geneInput_§DOM" class="form-label me-2 mb-0">Gene</label>
-          <input id="geneInput_§DOM" list="geneList_§DOM" class="form-control form-control-sm" aria-describedby="geneFeedback_§DOM" placeholder="e.g., PTPRC" style="max-width:260px" />
-          <datalist id="geneList_§DOM"></datalist>
-          <div id="geneFeedback_§DOM" class="visually-hidden" aria-live="polite"></div>
+    <div id="summary" class="tabpane show">
+      <div class="row">
+        <div class="col-md-6" id="clustCol_§DOM">
+          <div id="clusterPlot_§DOM" class="plot-area"></div>
         </div>
-        <div id="genePlot_§DOM" class="plot-area"></div>
+        <div class="col-md-6">
+          <img id="degPlot_§DOM" class="img-fluid" src="data:image/png;base64,§DEG_PLOT" alt="Differential expression summary" />
+        </div>
       </div>
     </div>
-  </div>
   <div id="about" class="tabpane">
   <div class="about-hero card shadow-sm p-4 mb-4">
     <div class="d-flex align-items-center gap-3 mb-3">
@@ -1022,7 +1016,6 @@ function setUMAPView(view){
     cl.removeClass('col-lg-6').addClass('col-lg-4');
   }
   wireSync('clusterPlot_'+DOM);
-  wireSync('genePlot_'+DOM);
   if(view!=='RNA') wireSync('protPlot_'+DOM);
 }
 
@@ -2198,23 +2191,17 @@ function startTour(key){
     }
   });
 }
-function plotClusters(){
-  drawUMAP();
-  const g=$('#geneInput_'+DOM).val(); if(g) drawGeneTo('genePlot_'+DOM,g);
-  const p=$('#proteinInput_'+DOM).val(); if(p) drawProteinTo('protPlot_'+DOM,p);
-}
-$(function(){
-  if(!SAMPLE_KEY){
-    $("a[data-tab='composition']").closest('li').remove();
-    $('#composition').remove();
+  function plotClusters(){
+    drawUMAP();
   }
-  populateGenes();
-  populateProteins();
-  const rand=GENES[Math.floor(Math.random()*GENES.length)];
-  $("#geneInput_"+DOM).val(rand);
-  if(PROT_GENES.length===0){
-      $('.protCtrl').hide();
-      $('#clustCol_'+DOM+',#rnaCol_'+DOM).removeClass('col-lg-4').addClass('col-lg-6');
+  $(function(){
+    if(!SAMPLE_KEY){
+      $("a[data-tab='composition']").closest('li').remove();
+      $('#composition').remove();
+    }
+    if(PROT_GENES.length===0){
+        $('.protCtrl').hide();
+        $('#clustCol_'+DOM+',#rnaCol_'+DOM).removeClass('col-lg-4').addClass('col-lg-6');
     } else {
       setUMAPView('BOTH');
       $('#viewBOTH_'+DOM).prop('checked',true);

@@ -1749,7 +1749,18 @@ def run_edger_batch(
 
 
 def plot_deg_counts(summary_df, figsize=(8,6), palette=("firebrick", "royalblue")):
-    df = summary_df.dropna(subset=["up_n", "down_n"]).copy()
+    df = summary_df.copy()
+    if df.empty:
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.text(0.5, 0.5, "No differential expression results", ha="center", va="center", fontsize=14)
+        ax.axis("off")
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight")
+        plt.close(fig)
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+
+    df["up_n"] = pd.to_numeric(df["up_n"], errors="coerce").fillna(0).astype(int)
+    df["down_n"] = pd.to_numeric(df["down_n"], errors="coerce").fillna(0).astype(int)
     df = df.sort_values("celltype")
     plot_df = df.melt(id_vars="celltype", value_vars=["up_n", "down_n"],
                       var_name="Direction", value_name="Count")

@@ -1708,6 +1708,17 @@ def register_volcano_routes(app, adata=None):
         payload = _expression_per_group(adata, celltype, gene)
         return jsonify(payload)
 
+    return app
+
+
+# Automatically register endpoints if a Flask app is already available
+try:
+    _app = globals().get("app")
+    if _app is not None:
+        register_volcano_routes(_app, globals().get("adata"))
+except Exception as e:
+    print(f"Warning: failed to register volcano routes: {e}", file=sys.stderr)
+
 
 if __name__ == "__main__":
     inline_vendor_assets()

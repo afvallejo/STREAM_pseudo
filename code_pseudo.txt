@@ -1573,6 +1573,9 @@ import json
 import math
 import numpy as np
 import pandas as pd
+from flask import Flask, jsonify, request
+
+app = Flask(__name__)
 
 # --- Configuration ---
 RESULTS_DIR = "/content/edger_results"
@@ -1677,5 +1680,33 @@ def _expression_per_group(adata, celltype: str, gene: str) -> dict:
     return {"group_names": list(GROUP_VALUES), "values": out}
 
 
+# --- API Routes ---
+@app.route("/api/celltypes")
+def api_celltypes():
+    """Return available cell types."""
+    return jsonify({"celltypes": get_celltypes(adata)})
+
+
+@app.route("/api/edger_results")
+def api_edger_results():
+    """Return edgeR results for a given cell type."""
+    celltype = request.args.get("celltype", "")
+    try:
+        df = _read_edger(celltype)
+    except FileNotFoundError:
+        return jsonify({"records": []}), 404
+    return jsonify({"records": df.to_dict("records")})
+
+
+@app.route("/api/gene_boxplot")
+def api_gene_boxplot():
+    """Return expression values per group for boxplot."""
+    celltype = request.args.get("celltype", "")
+    gene = request.args.get("gene", "")
+    data = _expression_per_group(adata, celltype, gene)
+    return jsonify(data)
+
+
 if __name__ == "__main__":
     inline_vendor_assets()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))

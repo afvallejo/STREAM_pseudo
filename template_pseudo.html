@@ -221,6 +221,9 @@
     <a class="nav-link" data-tab="coexpr" href="#">Co-expression</a>
   </li>
   <li class="nav-item">
+    <a class="nav-link" data-tab="edger" href="#">edgeR</a>
+  </li>
+  <li class="nav-item">
     <a class="nav-link" data-tab="composition" href="#">Composition</a>
   </li>
   <li class="nav-item">
@@ -476,6 +479,23 @@ E2F1</textarea>
       </details>
   </div>
   </div>
+  </div>
+  <div id="edger" class="tabpane">
+    <div class="d-flex gap-2 align-items-center mb-2">
+      <label class="form-label mb-0" for="edgerCellSel_§DOM">Cell type</label>
+      <select id="edgerCellSel_§DOM" class="form-select form-select-sm" style="max-width:220px"></select>
+      <label class="form-label mb-0" for="edgerGeneInput_§DOM">Gene</label>
+      <input list="edgerGeneList_§DOM" id="edgerGeneInput_§DOM" class="form-control form-control-sm" style="max-width:220px" placeholder="Gene symbol">
+      <datalist id="edgerGeneList_§DOM"></datalist>
+    </div>
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div id="edgerVolcano_§DOM" class="plot-area"></div>
+      </div>
+      <div class="col-md-6">
+        <div id="edgerBox_§DOM" class="plot-area"></div>
+      </div>
+    </div>
   </div>
   <div id="composition" class="tabpane">
     <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
@@ -858,6 +878,8 @@ const TF_MARKERS = §TF_MARKERS;
 const TF_SCORES = Object.fromEntries(
   Object.entries(§TF_SCORES).map(([k,o])=>[k,{ data: inflateArray(o.data, Uint8Array), vmin:o.vmin, vmax:o.vmax }])
 );
+const EDGER = inflateExp(§EDGER);
+const EDGER_EXPR = inflateExp(§EDGER_EXPR);
 function getEnrichFloat(sig){
   const o = ENRICH[sig]; if(!o) return new Float32Array(NCELLS);
   const out = new Float32Array(NCELLS);
@@ -1310,7 +1332,7 @@ function initComposition(){
   renderDirichlet();
 }
 
-let markersInit=false, topMarkersInit=false, enrichInit=false, tfInit=false, qcOverviewInit=false, qcPerClusterInit=false, compositionInit=false, biologyInit=false;
+let markersInit=false, topMarkersInit=false, enrichInit=false, tfInit=false, qcOverviewInit=false, qcPerClusterInit=false, compositionInit=false, biologyInit=false, edgerInit=false;
 const CONTEXT_BUDGET=20;
 let currentTab=null,currentSub='';
 let umapObsPurged=false,qcOverviewPurged=false,qcPerClusterPurged=false;
@@ -2483,6 +2505,66 @@ function drawCoexpr(){
     updateLegend(mode, gA, gB);
 }
 
+function populateEdger(){
+  const sel=document.getElementById("edgerCellSel_"+DOM);
+  sel.innerHTML="";
+  const frag=document.createDocumentFragment();
+  Object.keys(EDGER).forEach(ct=>{
+    const opt=document.createElement('option');
+    opt.value=ct; opt.textContent=ct;
+    frag.appendChild(opt);
+  });
+  sel.appendChild(frag);
+  if(sel.options.length){
+    sel.value=sel.options[0].value;
+    populateEdgerGenes();
+  }
+}
+function populateEdgerGenes(){
+  const ct=document.getElementById("edgerCellSel_"+DOM).value;
+  const list=document.getElementById("edgerGeneList_"+DOM);
+  const input=document.getElementById("edgerGeneInput_"+DOM);
+  const rows=EDGER[ct]||[];
+  list.innerHTML="";
+  const frag=document.createDocumentFragment();
+  rows.forEach(r=>{const opt=document.createElement('option'); opt.value=r.gene_symbol; frag.appendChild(opt);});
+  list.appendChild(frag);
+  drawEdgerVolcano();
+  if(rows.length){
+    input.value=rows[0].gene_symbol;
+    drawEdgerBox(rows[0].gene_symbol);
+  } else {
+    input.value='';
+    Plotly.purge('edgerVolcano_'+DOM);
+    Plotly.purge('edgerBox_'+DOM);
+  }
+}
+function drawEdgerVolcano(){
+  const ct=document.getElementById("edgerCellSel_"+DOM).value;
+  const rows=EDGER[ct]||[];
+  const trace={
+    x:rows.map(r=>r.log2FoldChange),
+    y:rows.map(r=>r.neglog10FDR),
+    text:rows.map(r=>r.gene_symbol),
+    mode:'markers',
+    marker:{size:6,color:rows.map(r=>r.is_sig?'#d62728':'#808080')},
+    hovertemplate:'%{text}<br>log2FC=%{x:.2f}<br>-log10FDR=%{y:.2f}<extra></extra>'
+  };
+  const layout={...PLOTLY_THEME.layout, xaxis:{title:'log2FC',zeroline:true}, yaxis:{title:'-log10 FDR'}, title:'edgeR Volcano'};
+  const el=document.getElementById('edgerVolcano_'+DOM);
+  Plotly.react(el,[trace],layout,PLOTLY_THEME.config);
+  el.on('plotly_click', ev=>{ if(ev.points?.length){ const gene=ev.points[0].text; document.getElementById('edgerGeneInput_'+DOM).value=gene; drawEdgerBox(gene);} });
+}
+function drawEdgerBox(gene){
+  const ct=document.getElementById("edgerCellSel_"+DOM).value;
+  const key=ct+'|'+gene;
+  const data=EDGER_EXPR[key];
+  if(!data){ Plotly.purge('edgerBox_'+DOM); return; }
+  const traces=data.group_names.map((g,i)=>({y:data.values[i], name:g, type:'box'}));
+  const layout={...PLOTLY_THEME.layout, title:gene, yaxis:{title:'Expression'}};
+  Plotly.react('edgerBox_'+DOM,traces,layout,PLOTLY_THEME.config);
+}
+
 function parseHash(){
   const params=new URLSearchParams(window.location.hash.slice(1));
   return {tab:params.get('tab'), sub:params.get('sub')};
@@ -2513,6 +2595,7 @@ function showTab(tab, sub){
   if(tab==='topmarkers'&&!topMarkersInit){populateTopMarkerClusters(); topMarkersInit=true;}
   if(tab==='enrich'&&!enrichInit){populateEnrichClusters(); enrichInit=true;}
   if(tab==='tf'&&!tfInit){populateTFClusters(); tfInit=true;}
+  if(tab==='edger'&&!edgerInit){populateEdger(); edgerInit=true;}
   if(tab==='composition'&&!compositionInit){initComposition(); compositionInit=true;}
   if(tab==='biology'&&!biologyInit){drawBiologyUMAP(); biologyInit=true;}
   if(tab==='qc') showQCSub(sub||'Overview');
@@ -2522,6 +2605,7 @@ function showTab(tab, sub){
   if(tab==='topmarkers' && lastTopMarkerGene) drawTopMarkerGene(lastTopMarkerGene);
   if(tab==='enrich') drawEnrich();
   if(tab==='tf') drawTF();
+  if(tab==='edger') drawEdgerVolcano();
   if(tab==='coexpr') drawCoexpr();
   if(tab==='qc'){
     const active=sub||'Overview';
@@ -2848,9 +2932,11 @@ $(function(){
   $("#modeSel_"+DOM).on('change',function(){
     const m=$(this).val();
     const tf=$("#transformSel_"+DOM);
-    if(m==='ratio'){tf.find("option[value='logratio']").prop('disabled',false);}else{tf.val('raw');tf.find("option[value='logratio']").prop('disabled',true);} 
+    if(m==='ratio'){tf.find("option[value='logratio']").prop('disabled',false);}else{tf.val('raw');tf.find("option[value='logratio']").prop('disabled',true);}
     drawCoexpr();
   });
+  $("#edgerCellSel_"+DOM).on('change',populateEdgerGenes);
+  $("#edgerGeneInput_"+DOM).on('input',function(){drawEdgerBox(this.value);});
   if(HAS_PROT){
     $("#methodLbl_"+DOM).text('Modality');
     const mSel=$("#methodSel_"+DOM);

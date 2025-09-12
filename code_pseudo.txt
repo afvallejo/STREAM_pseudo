@@ -21,9 +21,13 @@ import warnings
 from pandas.errors import PerformanceWarning
 from typing import Callable, Optional
 from concurrent.futures import ThreadPoolExecutor
+from flask import Flask, jsonify, request
 
 # Silence pandas' PerformanceWarning produced during repeated DataFrame inserts
 warnings.filterwarnings("ignore", category=PerformanceWarning)
+
+app = Flask(__name__)
+GLOBAL_ADATA = None  # populated elsewhere with AnnData
 
 class SecTemplate(Template):
     delimiter = "§"
@@ -1660,6 +1664,40 @@ def _expression_per_group(adata, celltype: str, gene: str) -> dict:
     if not mask_ct.any():
         return {"group_names": list(GROUP_VALUES), "values": [[],[]]}
 
+    adata_ct = adata[mask_ct]
+    expr = adata_ct[:, gene].X
+    if sp.issparse(expr):
+        expr = expr.toarray().ravel()
+    else:
+        expr = np.asarray(expr).ravel()
+
+    meta = adata_ct.obs[group_col].astype(str).values
+    group_names = [g for g in GROUP_VALUES if g in set(meta)]
+    values = [expr[meta == g].tolist() for g in group_names]
+    return {"group_names": group_names, "values": values}
+
+
+@app.get("/api/celltypes")
+def api_celltypes():
+    return jsonify(get_celltypes(GLOBAL_ADATA))
+
+
+@app.get("/api/edger_results")
+def api_edger_results():
+    ct = request.args.get("celltype", "")
+    if not ct:
+        return jsonify([])
+    df = _read_edger(ct)
+    return jsonify(df.to_dict(orient="records"))
+
+
+@app.get("/api/gene_boxplot")
+def api_gene_boxplot():
+    ct = request.args.get("celltype", "")
+    gene = request.args.get("gene", "")
+    return jsonify(_expression_per_group(GLOBAL_ADATA, ct, gene))
+
 
 if __name__ == "__main__":
     inline_vendor_assets()
+    app.run(host="0.0.0.0", port=5000)

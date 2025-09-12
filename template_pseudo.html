@@ -224,7 +224,8 @@
     <a class="nav-link" data-tab="composition" href="#">Composition</a>
   </li>
   <li class="nav-item">
-    <a class="nav-link" data-tab="volcano" href="#">Volcano Plot</a>
+    <!-- Use custom data-tab navigation; no Bootstrap JS required -->
+    <a class="nav-link" data-tab="volcano" href="#" aria-controls="volcano">Volcano Plot</a>
   </li>
   <li class="nav-item">
     <a class="nav-link" data-tab="biology" href="#">AI Insights</a>
@@ -508,6 +509,7 @@ E2F1</textarea>
       </div>
     </div>
   </div>
+  <!-- Volcano Plot tab content; integrated with custom tab system -->
   <div id="volcano" class="tabpane">
     <div class="container-fluid py-3">
       <!-- keep existing aesthetics; uses same container spacing -->

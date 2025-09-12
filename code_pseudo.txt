@@ -22,6 +22,13 @@ from pandas.errors import PerformanceWarning
 from typing import Callable, Optional
 from concurrent.futures import ThreadPoolExecutor
 
+# Environment variables
+leiden = os.environ.get("LEIDEN", "celltype")
+project_title = os.environ.get("PROJECT_TITLE", "COVID")
+celltype_var = os.environ.get("CELLTYPE_VAR", "celltype")
+Individual_var = os.environ.get("INDIVIDUAL_VAR", "individual")
+Group_var = os.environ.get("GROUP_VAR", "disease")
+
 # Silence pandas' PerformanceWarning produced during repeated DataFrame inserts
 warnings.filterwarnings("ignore", category=PerformanceWarning)
 
@@ -1561,5 +1568,145 @@ def inline_vendor_assets(html_path: str = "template.html") -> None:
     tpl.write_text(html, encoding="utf-8")
 
 
+import os
+import json
+import math
+import numpy as np
+import pandas as pd
+from flask import Flask, jsonify, request
+
+app = Flask(__name__)
+
+# --- Configuration ---
+RESULTS_DIR = "/content/edger_results"
+CONTRAST_VAR = "COVID-19_vs_normal"  # required by user
+CELLTYPE_VAR = os.environ.get("CELLTYPE_VAR", "celltype")  # adjust if needed
+GROUP_VALUES = ("COVID-19", "normal")  # inferred from contrast
+
+# --- Helpers ---
+def _read_edger(celltype: str) -> pd.DataFrame:
+    """Load a single edgeR CSV and standardize columns."""
+    path = os.path.join(RESULTS_DIR, f"{celltype}_{CONTRAST_VAR}_edgeR_results.csv")
+    if not os.path.isfile(path):
+        raise FileNotFoundError(path)
+    df = pd.read_csv(path)
+
+    # Normalize column names
+    colmap = {}
+    for c in df.columns:
+        cl = c.lower()
+        if cl in {"gene_symbol","gene","symbol","feature"}:
+            colmap[c] = "gene_symbol"
+        elif cl in {"log2foldchange","log2fc","logfc"}:
+            colmap[c] = "log2FoldChange"
+        elif cl in {"pvalue","p_val","p_val_adj","pval"}:
+            colmap[c] = "PValue"
+        elif cl in {"fdr","padj","qvalue","q_value"}:
+            colmap[c] = "FDR"
+    if colmap:
+        df = df.rename(columns=colmap)
+
+    # Enforce required columns
+    for req in ["gene_symbol","log2FoldChange","PValue","FDR"]:
+        if req not in df.columns:
+            df[req] = np.nan
+
+    # Compute -log10(FDR) safely
+    fdr = df["FDR"].replace(0, np.nextafter(0, 1.0))
+    df["neglog10FDR"] = -np.log10(fdr)
+
+    # Significance flag for coloring
+    df["is_sig"] = (df["FDR"] < 0.05) & (df["log2FoldChange"].abs() >= 1)
+
+    # Keep compact payload
+    df = df.loc[~df["gene_symbol"].isna(), ["gene_symbol","log2FoldChange","PValue","FDR","neglog10FDR","is_sig"]]
+    return df
+
+def _list_celltypes_from_fs() -> list[str]:
+    if not os.path.isdir(RESULTS_DIR):
+        return []
+    suffix = f"_{CONTRAST_VAR}_edgeR_results.csv"
+    cts = []
+    for fn in os.listdir(RESULTS_DIR):
+        if fn.endswith(suffix):
+            cts.append(fn[: -len(suffix)])
+    return sorted(set(cts))
+
+def _list_celltypes_from_adata(adata) -> list[str]:
+    try:
+        if adata is None: return []
+        if celltype_var not in adata.obs.columns: return []
+        s = adata.obs[celltype_var]
+        if hasattr(s, "cat"):
+            return [str(x) for x in list(s.cat.categories)]
+        return sorted([str(x) for x in s.unique()])
+    except Exception:
+        return []
+
+def get_celltypes(adata) -> list[str]:
+    cts = _list_celltypes_from_adata(adata)
+    return cts if cts else _list_celltypes_from_fs()
+
+def _expression_per_group(adata, celltype: str, gene: str) -> dict:
+    """
+    Returns dict with group_names and values (list of arrays) for boxplot.
+    Tries common metadata columns to split groups.
+    """
+    if adata is None: return {"group_names": list(GROUP_VALUES), "values": [[],[]]}
+    if CELLTYPE_VAR not in adata.obs.columns: return {"group_names": list(GROUP_VALUES), "values": [[],[]]}
+    if gene not in adata.var_names: return {"group_names": list(GROUP_VALUES), "values": [[],[]]}
+
+    # candidate columns that might contain COVID-19 vs normal
+    candidates = ["condition","group","diagnosis","status","cohort","phenotype","case_control"]
+    group_col = next((c for c in candidates if c in adata.obs.columns), None)
+    if group_col is None:
+        return {"group_names": list(GROUP_VALUES), "values": [[],[]]}
+
+    mask_ct = (adata.obs[CELLTYPE_VAR].astype(str) == str(celltype))
+    if not mask_ct.any():
+        return {"group_names": list(GROUP_VALUES), "values": [[],[]]}
+
+    # Extract expression vector
+    X = adata[mask_ct, adata.var_names.get_loc(gene)].X
+    try:
+        y = np.asarray(X.todense()).ravel()  # for sparse
+    except Exception:
+        y = np.asarray(X).ravel()
+
+    gvals = adata.obs.loc[mask_ct, group_col].astype(str).values
+    out = []
+    for g in GROUP_VALUES:
+        out.append(y[gvals == g].tolist())
+    return {"group_names": list(GROUP_VALUES), "values": out}
+
+
+# --- API Routes ---
+@app.route("/api/celltypes")
+def api_celltypes():
+    """Return available cell types."""
+    return jsonify({"celltypes": get_celltypes(adata)})
+
+
+@app.route("/api/edger_results")
+def api_edger_results():
+    """Return edgeR results for a given cell type."""
+    celltype = request.args.get("celltype", "")
+    try:
+        df = _read_edger(celltype)
+    except FileNotFoundError:
+        return jsonify({"records": []}), 404
+    return jsonify({"records": df.to_dict("records")})
+
+
+@app.route("/api/gene_boxplot")
+def api_gene_boxplot():
+    """Return expression values per group for boxplot."""
+    celltype = request.args.get("celltype", "")
+    gene = request.args.get("gene", "")
+    data = _expression_per_group(adata, celltype, gene)
+    return jsonify(data)
+
+
 if __name__ == "__main__":
     inline_vendor_assets()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))

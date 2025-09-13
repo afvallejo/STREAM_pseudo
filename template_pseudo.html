@@ -51,8 +51,8 @@
   }
   /* Card-like plot and table frames (no markup changes needed) */
   [id$="Plot_§DOM"], [id^="clusterPlot_"], [id^="genePlot_"], [id^="markerUMAP_"],
-  [id^="topMarkerUMAP_"], [id^="enrichUMAP_"], [id^="enrichViolin_"], [id^="tfUMAP_"],
-    [id^="tfViolin_"], [id^="coexprPlot_§DOM"], #compBar, #dirichletForest{
+  [id^="topMarkerUMAP_"], [id^="enrichUMAP_"], [id^="enrichViolin_"], #tfBarplot,
+    [id^="coexprPlot_§DOM"], #compBar, #dirichletForest{
       background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
       box-shadow:var(--shadow); padding: var(--space-2);
     }
@@ -370,19 +370,14 @@
   </div>
   <div id="tf" class="tabpane">
     <div class="d-flex gap-2 align-items-center mb-2">
-      <label class="form-label mb-0" for="tfClusterSel_§DOM">Cluster</label>
-      <select id="tfClusterSel_§DOM" class="form-select form-select-sm" style="max-width:130px"></select>
-      <label class="form-label mb-0" for="tfGeneSel_§DOM">Transcription factor</label>
-      <select id="tfGeneSel_§DOM" class="form-select form-select-sm" style="max-width:180px"></select>
-      <button id="tfDownload_§DOM" class="btn btn-sm btn-outline-secondary ms-auto">Download CSV</button>
+      <label class="form-label mb-0" for="tfCelltype">Cell type</label>
+      <select id="tfCelltype" class="form-select form-select-sm" style="max-width:130px"></select>
     </div>
     <div class="row">
       <div class="col-md-6">
-        <div id="tfUMAP_§DOM" class="plot-area"></div>
+        <div id="tfBarplot" class="plot-area"></div>
       </div>
-      <div class="col-md-6">
-        <div id="tfViolin_§DOM" class="plot-area"></div>
-      </div>
+      <div class="col-md-6"></div>
     </div>
   </div>
   <div id="coexpr" class="tabpane">
@@ -669,7 +664,6 @@ Cluster size: {size}
 {top_marker_lines}
 Additional marker genes per method (JSON): {cl_markers}
 Cell-type enrichment from PanglaoDB (CSV): {cl_ctype_csv}
-TF programs (JSON): {cl_tf_json}
 Tissue context: {tissue_context}
 
 OUTPUT
@@ -697,7 +691,7 @@ label, confidence (High/Medium/Low), and key markers supporting the call.</pre>
     <p class="lead mb-2">
       Interactive data mining and analysis of bulk and single-cell expression data —
       delivered as a fast, shareable HTML dashboard with UMAPs, marker discovery,
-      enrichment, TF programs, and co-expression exploration.
+      enrichment, transcription factor activity, and co-expression exploration.
     </p>
 
     <!-- Mission (requested: accessibility + data mining help) -->
@@ -780,7 +774,7 @@ label, confidence (High/Medium/Low), and key markers supporting the call.</pre>
           <div class="small">
             <p class="mb-2"><strong>Disclaimer.</strong> STREAM is a research and education tool. It is not intended for clinical, diagnostic, or patient-management decisions.</p>
             <ul class="mb-2">
-              <li><strong>AI Insights (if enabled)</strong> are LLM-generated summaries that can be incomplete or incorrect; always validate with markers, enrichment and TF programs.</li>
+              <li><strong>AI Insights (if enabled)</strong> are LLM-generated summaries that can be incomplete or incorrect; always validate with markers, enrichment and TF activity.</li>
               <li><strong>Privacy.</strong> This dashboard does not upload sample-level data to a server; rendering happens in your browser. (If you need strict offline use, bundle local JS/CSS assets instead of CDNs.)</li>
               <li><strong>Upstream AI usage.</strong> If you tick “Generate biology insights” during build, cluster-level summaries (markers, enrichment ranks, etc.) are sent to the configured AI provider to produce text; raw counts are not sent.</li>
               <li><strong>No warranty.</strong> Provided “AS IS” without warranty of any kind; you are responsible for verifying results and for compliance with any data-use terms.</li>
@@ -884,19 +878,8 @@ const BATCH = §BATCH;
 const CELL_CYCLE = §CELL_CYCLE;
 const NN_INDPTR = §NN_INDPTR?inflateArray(§NN_INDPTR, Int32Array):null;
 const NN_INDICES = §NN_INDICES?inflateArray(§NN_INDICES, Int32Array):null;
-const TF_MARKERS = §TF_MARKERS;
-const TF_SCORES = Object.fromEntries(
-  Object.entries(§TF_SCORES).map(([k,o])=>[k,{ data: inflateArray(o.data, Uint8Array), vmin:o.vmin, vmax:o.vmax }])
-);
 function getEnrichFloat(sig){
   const o = ENRICH[sig]; if(!o) return new Float32Array(NCELLS);
-  const out = new Float32Array(NCELLS);
-  const rng = Math.max(o.vmax - o.vmin, 1e-6);
-  for(let i=0;i<out.length;i++) out[i] = o.vmin + (o.data[i]/255)*rng;
-  return out;
-}
-function getTFScoreFloat(sig){
-  const o = TF_SCORES[sig]; if(!o) return new Float32Array(NCELLS);
   const out = new Float32Array(NCELLS);
   const rng = Math.max(o.vmax - o.vmin, 1e-6);
   for(let i=0;i<out.length;i++) out[i] = o.vmin + (o.data[i]/255)*rng;
@@ -952,6 +935,8 @@ const VOLCANO_DATA = VOLCANO_DATA_PLACEHOLDER;
 const VOLCANO_CELLTYPES = VOLCANO_CELLTYPES_PLACEHOLDER;
 const DGE_DATA = DGE_DATA_PLACEHOLDER;
 const DGE_CELLTYPES = DGE_CELLTYPES_PLACEHOLDER;
+const TF_BARPLOTS = TF_BARPLOTS_PLACEHOLDER;
+const TF_CELLTYPES = TF_CELLTYPES_PLACEHOLDER;
 
 const EXP_CACHE = new Map();
 const MAX_CACHE = 50;
@@ -1307,14 +1292,6 @@ function downloadEnrichCSV(){
     (types||[]).forEach((t,i) => rows.push([cl, i+1, t]));
   });
   downloadTableCSV('predicted_annotation.csv', rows);
-}
-
-function downloadTFCsv(){
-  const rows = [['cluster','rank','tf']];
-  Object.entries(TF_MARKERS).forEach(([cl, genes]) => {
-    (genes||[]).forEach((g,i) => rows.push([cl, i+1, g]));
-  });
-  downloadTableCSV('tf_enrichment.csv', rows);
 }
 
 function renderDirichlet(){
@@ -2314,43 +2291,6 @@ function drawEnrich(){
   }
 }
 
-function populateTFClusters(){
-  const cSel=$("#tfClusterSel_"+DOM); cSel.empty();
-  Object.keys(TF_MARKERS).forEach(c=>cSel.append(`<option value="${c}">${c}</option>`));
-  updateTFGenes();
-}
-function updateTFGenes(){
-  const cl=$("#tfClusterSel_"+DOM).val();
-  const genes=TF_MARKERS[cl]||[];
-  const gSel=$("#tfGeneSel_"+DOM); gSel.empty();
-  genes.forEach(t=>gSel.append(`<option value="${t}">${t}</option>`));
-  if(genes.length) gSel.val(genes[0]);
-  drawTF();
-}
-function drawTF(){
-  const tf=$("#tfGeneSel_"+DOM).val();
-  if(!tf) return;
-    const raw=getTFScoreFloat(tf);
-    drawScoreUMAP('tfUMAP_'+DOM, raw, 'TF score: '+tf);
-    const scores=Array.from(raw, v => v + PSEUDOCOUNT);
-  const hover = Array.from(CLUSTER_CODES, i => CLUSTER_NAMES[i]);
-    const vioTraces=CLUSTERS.map(c=>({
-      type:'violin',
-      y:scores.filter((_,i)=>hover[i]==c),
-      name:c,
-      points:'all',
-      pointpos:0,
-      marker:{color:CLUSTER_COLORS[c]},
-      hovertemplate:LEIDEN+': '+c+'<extra></extra>',
-      box:{visible:true}
-    }));
-  const vioLayout=createViolinLayout('Distribution of '+tf+' scores across '+LEIDEN);
-  try{
-    Plotly.newPlot('tfViolin_'+DOM,vioTraces,vioLayout,PLOTLY_THEME.config);
-  }catch(e){
-    console.error('Failed to render TF violin plot',e);
-  }
-}
 
 function percentile(arr, p){
   const a=Array.from(arr).sort((x,y)=>x-y);
@@ -2518,6 +2458,25 @@ function drawCoexpr(){
     updateLegend(mode, gA, gB);
 }
 
+function initTF(){
+  const sel=document.getElementById('tfCelltype');
+  TF_CELLTYPES.forEach(ct=>{
+    const opt=document.createElement('option'); opt.value=ct; opt.textContent=ct; sel.appendChild(opt);
+  });
+  sel.addEventListener('change', renderTF);
+}
+
+function renderTF(){
+  const ct=document.getElementById('tfCelltype').value;
+  const b64=TF_BARPLOTS[ct];
+  const div=document.getElementById('tfBarplot');
+  if(b64){
+    div.innerHTML = `<img src="data:image/png;base64,${b64}" class="img-fluid"/>`;
+  } else {
+    div.innerHTML = '';
+  }
+}
+
 function initVolcano(){
   const sel=document.getElementById('volcanoCelltype');
   VOLCANO_CELLTYPES.forEach(ct=>{
@@ -2633,7 +2592,7 @@ function showTab(tab, sub){
   if(tab==='markers'&&!markersInit){populateMarkerSelectors(); markersInit=true;}
   if(tab==='topmarkers'&&!topMarkersInit){populateTopMarkerClusters(); topMarkersInit=true;}
   if(tab==='enrich'&&!enrichInit){populateEnrichClusters(); enrichInit=true;}
-  if(tab==='tf'&&!tfInit){populateTFClusters(); tfInit=true;}
+  if(tab==='tf'&&!tfInit){initTF(); tfInit=true;}
   if(tab==='composition'&&!compositionInit){initComposition(); compositionInit=true;}
   if(tab==='volcano' && !volcanoInit){ initVolcano(); volcanoInit=true; }
   if(tab==='dge' && !dgeInit){ initDGE(); dgeInit=true; }
@@ -2644,7 +2603,7 @@ function showTab(tab, sub){
   if(tab==='markers' && lastMarkerGene) drawMarkerGene(lastMarkerGene);
   if(tab==='topmarkers' && lastTopMarkerGene) drawTopMarkerGene(lastTopMarkerGene);
   if(tab==='enrich') drawEnrich();
-  if(tab==='tf') drawTF();
+  if(tab==='tf') renderTF();
   if(tab==='coexpr') drawCoexpr();
   if(tab==='volcano') renderVolcano();   // re-draw when returning
   if(tab==='dge') renderDGE();
@@ -3016,9 +2975,6 @@ $(function(){
   $("#enrichClusterSel_"+DOM).on("change",updateEnrichTypes);
   $("#enrichTypeSel_"+DOM).on("change",drawEnrich);
   $("#enrichDownload_"+DOM).on("click",downloadEnrichCSV);
-  $("#tfClusterSel_"+DOM).on("change",updateTFGenes);
-  $("#tfGeneSel_"+DOM).on("change",drawTF);
-  $("#tfDownload_"+DOM).on("click",downloadTFCsv);
   $(".nav.nav-tabs .nav-link").on("click",function(e){
     e.preventDefault();
     const tab=$(this).data("tab");

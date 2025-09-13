@@ -938,8 +938,10 @@ def run_analysis(b):
         res_df = pd.read_csv(res_path)
         if 'gene_symbol' not in res_df.columns:
             res_df['gene_symbol'] = res_df.index.astype(str)
+        if 'log2FoldChange' not in res_df.columns and 'logFC' in res_df.columns:
+            res_df['log2FoldChange'] = res_df['logFC']
         symbols = res_df['gene_symbol']
-        logfc = res_df['log2FoldChange'] if 'log2FoldChange' in res_df.columns else res_df['logFC']
+        logfc = res_df['log2FoldChange']
         y = -np.log10(res_df['FDR'])
         sig = res_df['FDR'] < 0.05
         volcano_traces = [
@@ -971,7 +973,7 @@ def run_analysis(b):
             "defaultGene": symbols.iloc[0] if len(symbols) else None,
         }
         dge_payload[celltype] = {
-            "table": res_df[['gene_symbol', 'LR', 'FDR']].to_dict(orient='records'),
+            "table": res_df[['gene_symbol', 'log2FoldChange', 'LR', 'FDR']].to_dict(orient='records'),
             "boxData": gene_box,
             "groupLabel": Group_var,
             "defaultGene": symbols.iloc[0] if len(symbols) else None,

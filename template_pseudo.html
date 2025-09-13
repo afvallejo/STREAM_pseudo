@@ -2564,8 +2564,9 @@ function renderDGE(){
   const ct=document.getElementById('dgeCelltype').value;
   const res=DGE_DATA[ct];
   const tbl=$('#dgeTable');
-  let html='<thead><tr><th>Gene</th><th>LR</th><th>FDR</th></tr></thead><tbody>';
-  res.table.forEach(r=>{html+=`<tr data-gene="${r.gene_symbol}"><td>${r.gene_symbol}</td><td>${r.LR}</td><td>${r.FDR}</td></tr>`;});
+  const fmt=x=>Number.parseFloat(x).toPrecision(3);
+  let html='<thead><tr><th>Gene</th><th>log2FoldChange</th><th>LR</th><th>FDR</th></tr></thead><tbody>';
+  res.table.forEach(r=>{html+=`<tr data-gene="${r.gene_symbol}"><td>${r.gene_symbol}</td><td>${fmt(r.log2FoldChange)}</td><td>${fmt(r.LR)}</td><td>${fmt(r.FDR)}</td></tr>`;});
   html+='</tbody>';
   tbl.html(html);
   if($.fn.DataTable){

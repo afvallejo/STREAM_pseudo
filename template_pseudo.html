@@ -224,6 +224,9 @@
     <a class="nav-link" data-tab="composition" href="#">Composition</a>
   </li>
   <li class="nav-item">
+    <a class="nav-link" data-tab="volcano" href="#">Volcano</a>
+  </li>
+  <li class="nav-item">
     <a class="nav-link" data-tab="biology" href="#">AI Insights</a>
   </li>
   <li class="nav-item">
@@ -503,6 +506,16 @@ E2F1</textarea>
         <div id="dirichletForest" style="width:100%;height:400px" class="mb-3"></div>
         <table id="dirichletTable" class="table table-sm table-hover"></table>
       </div>
+    </div>
+  </div>
+  <div id="volcano" class="tabpane">
+    <div class="d-flex gap-2 align-items-center mb-2">
+      <label class="form-label mb-0" for="volcanoCelltype">Cell type</label>
+      <select id="volcanoCelltype" class="form-select form-select-sm" style="max-width:160px"></select>
+    </div>
+    <div class="row g-3">
+      <div class="col-md-6"><div id="volcanoBox" class="plot-area"></div></div>
+      <div class="col-md-6"><div id="volcanoPlot" class="plot-area"></div></div>
     </div>
   </div>
   <div id="biology" class="tabpane">
@@ -918,6 +931,9 @@ if(COMPOSITION){
   COMPOSITION.props = inflateArray(COMPOSITION.props, Float32Array);
 }
 
+const VOLCANO_DATA = VOLCANO_DATA_PLACEHOLDER;
+const VOLCANO_CELLTYPES = VOLCANO_CELLTYPES_PLACEHOLDER;
+
 const EXP_CACHE = new Map();
 const MAX_CACHE = 50;
 const PERC_CACHE = new Map();
@@ -1310,7 +1326,7 @@ function initComposition(){
   renderDirichlet();
 }
 
-let markersInit=false, topMarkersInit=false, enrichInit=false, tfInit=false, qcOverviewInit=false, qcPerClusterInit=false, compositionInit=false, biologyInit=false;
+let markersInit=false, topMarkersInit=false, enrichInit=false, tfInit=false, qcOverviewInit=false, qcPerClusterInit=false, compositionInit=false, volcanoInit=false, biologyInit=false;
 const CONTEXT_BUDGET=20;
 let currentTab=null,currentSub='';
 let umapObsPurged=false,qcOverviewPurged=false,qcPerClusterPurged=false;
@@ -2483,6 +2499,21 @@ function drawCoexpr(){
     updateLegend(mode, gA, gB);
 }
 
+function initVolcano(){
+  const sel=document.getElementById('volcanoCelltype');
+  VOLCANO_CELLTYPES.forEach(ct=>{
+    const opt=document.createElement('option'); opt.value=ct; opt.textContent=ct; sel.appendChild(opt);
+  });
+  sel.addEventListener('change', renderVolcano);
+}
+
+async function renderVolcano(){
+  const ct=document.getElementById('volcanoCelltype').value;
+  const res = VOLCANO_DATA[ct];      // injected via code_pseudo.txt
+  Plotly.react('volcanoPlot', res.volcanoTraces, {...PLOTLY_THEME.layout, xaxis:{title:'log2FC'}, yaxis:{title:'-log10(FDR)'}}, PLOTLY_THEME.config);
+  Plotly.react('volcanoBox', res.boxTraces, {...PLOTLY_THEME.layout}, PLOTLY_THEME.config);
+}
+
 function parseHash(){
   const params=new URLSearchParams(window.location.hash.slice(1));
   return {tab:params.get('tab'), sub:params.get('sub')};
@@ -2514,6 +2545,7 @@ function showTab(tab, sub){
   if(tab==='enrich'&&!enrichInit){populateEnrichClusters(); enrichInit=true;}
   if(tab==='tf'&&!tfInit){populateTFClusters(); tfInit=true;}
   if(tab==='composition'&&!compositionInit){initComposition(); compositionInit=true;}
+  if(tab==='volcano' && !volcanoInit){ initVolcano(); volcanoInit=true; }
   if(tab==='biology'&&!biologyInit){drawBiologyUMAP(); biologyInit=true;}
   if(tab==='qc') showQCSub(sub||'Overview');
   if(tab==='umap') plotClusters();
@@ -2523,6 +2555,7 @@ function showTab(tab, sub){
   if(tab==='enrich') drawEnrich();
   if(tab==='tf') drawTF();
   if(tab==='coexpr') drawCoexpr();
+  if(tab==='volcano') renderVolcano();   // re-draw when returning
   if(tab==='qc'){
     const active=sub||'Overview';
     if(active==='Overview' && qcOverviewPurged){initQCOverview();}

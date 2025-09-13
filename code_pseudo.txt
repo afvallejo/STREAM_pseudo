@@ -929,9 +929,37 @@ def run_analysis(b):
     # ─────────────────────────────────────────
     # Fill HTML template
     # ─────────────────────────────────────────
+    celltypes = sorted(adata.obs[celltype_var].unique().tolist())
+    volcano_payload = {}
+    for celltype in celltypes:
+        res_path = Path('/content/edger_results') / f"{celltype}_{contrast_var}_edgeR_results.csv"
+        res_df = pd.read_csv(res_path)
+        logfc = res_df['log2FoldChange'] if 'log2FoldChange' in res_df.columns else res_df['logFC']
+        y = -np.log10(res_df['FDR'])
+        sig = res_df['FDR'] < 0.05
+        volcano_traces = [
+            {"type":"scattergl","mode":"markers","x":logfc[~sig].tolist(),"y":y[~sig].tolist(),"name":"FDR≥0.05","marker":{"color":"#bbb","size":4,"opacity":0.6}},
+            {"type":"scattergl","mode":"markers","x":logfc[sig].tolist(),"y":y[sig].tolist(),"name":"FDR<0.05","marker":{"color":"#d62728","size":4,"opacity":0.6}},
+        ]
+        pb_counts = pd.read_csv(Path('/content/Pseudobulk') / f"{celltype}_pseudobulk_counts.csv", index_col=0)
+        meta = pd.read_csv(Path('/content/Pseudobulk') / f"{celltype}_metadata.csv")
+        groups = meta[contrast_var].astype(str).tolist()
+        lib_sizes = pb_counts.sum(axis=0).to_numpy()
+        log_counts = np.log1p(lib_sizes)
+        box_traces = []
+        for grp in sorted(set(groups)):
+            idx = [i for i,g in enumerate(groups) if g==grp]
+            box_traces.append({"type":"box","y":log_counts[idx].tolist(),"name":grp})
+        volcano_payload[celltype] = {
+            "volcanoTraces": volcano_traces,
+            "boxTraces": box_traces,
+        }
     template_path = Path("template.html")
     with template_path.open(encoding="utf-8") as f:
-        html = SecTemplate(f.read())
+        template = f.read()
+    template = template.replace('VOLCANO_DATA_PLACEHOLDER', json.dumps(volcano_payload))
+    template = template.replace('VOLCANO_CELLTYPES_PLACEHOLDER', json.dumps(celltypes))
+    html = SecTemplate(template)
 
     ts = datetime.now()
     filename = getattr(adata, 'filename', None)

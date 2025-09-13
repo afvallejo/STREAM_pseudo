@@ -790,31 +790,51 @@ def run_analysis(b):
             b64, vmin, vmax = pack_quantized_full(score_df[ct].astype(np.float32).to_numpy())
             enrich_dict[ct] = {"data": b64, "vmin": vmin, "vmax": vmax}
 
-    # Transcription factor enrichment ---------------------------------------
-    collectri = dc.op.collectri(organism="human")
-    dc.mt.ulm(data=adata, net=collectri)
-    score_tf = dc.pp.get_obsm(adata=adata, key="score_ulm")
-    df_tf = dc.tl.rankby_group(adata=score_tf, groupby=leiden, reference="rest", method="t-test_overestim_var")
-    df_tf = df_tf[df_tf["stat"] > 0]
-    n_markers = 5
-    source_markers = (
-        df_tf.groupby("group", observed=False)
-        .head(n_markers)
-        .drop_duplicates("name")
-        .groupby("group", observed=False)["name"]
-        .apply(lambda x: list(x))
-        .to_dict()
-    )
-    all_tfs = sorted({tf for lst in source_markers.values() for tf in lst})
-    tf_enrich_dict = {}
-    score_tf_df = score_tf.to_df() if hasattr(score_tf, "to_df") else pd.DataFrame(score_tf.X, index=score_tf.obs_names, columns=score_tf.var_names)
-    for tf in all_tfs:
-        if tf in score_tf_df.columns:
-            b64, vmin, vmax = pack_quantized_full(score_tf_df[tf].astype(np.float32).to_numpy())
-            tf_enrich_dict[tf] = {"data": b64, "vmin": vmin, "vmax": vmax}
+    # BTM enrichment --------------------------------------------------------
+    celltypes = sorted(adata.obs[celltype_var].unique())
+    net = dc.pp.read_gmt("/content/BTM_for_GSEA_20131008_fixed.gmt")
+    net = net.drop_duplicates(subset=["source", "target"])
+    btm_plot_dict = {}
+    source_markers = {}
+    for celltype in celltypes:
+        key = celltype.replace(" ", "_")
+        expr_csv = Path('/content/edger_results') / f"{key}_{contrast_var}_edgeR_results.csv"
+        print(f"Renaming columns in {expr_csv}")
+        expr_df = pd.read_csv(expr_csv)
+        rename_map = {
+            "gene_symbol": "genes",
+            "FDR": "padj",
+            "PValue": "pvalue",
+        }
+        safe_map = {}
+        for old, new in rename_map.items():
+            if old in expr_df.columns:
+                if new in expr_df.columns:
+                    warnings.warn(f"'{new}' already exists – dropping duplicate source column '{old}'.")
+                    expr_df = expr_df.drop(columns=[old])
+                else:
+                    safe_map[old] = new
+            else:
+                if new not in expr_df.columns:
+                    warnings.warn(f"Neither '{old}' nor '{new}' found – skipping.")
+        expr_df = expr_df.rename(columns=safe_map)
+        expr_df = expr_df.set_index('genes')
+        data = expr_df[["LR"]].T.rename(index={"LR": contrast_var})
+        data = data.apply(pd.to_numeric, errors='coerce')
+        n_nonfinite = (~np.isfinite(data.to_numpy())).sum()
+        if n_nonfinite:
+            print(f"[clean] data: replacing {n_nonfinite} non-finite values with 0.")
+        data = data.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        btm_acts, btm_padj = dc.mt.ulm(data=data, net=net)
+        msk = btm_padj.loc[:, contrast_var] < 0.05
+        btm_acts = btm_acts[msk]
+        top = btm_acts[contrast_var].nlargest(10)
+        btm_plot_dict[celltype] = {
+            "names": top.index.tolist(),
+            "values": top.to_numpy().tolist(),
+        }
 
     # Union of EdgeR marker genes --------------------------------------------
-    celltypes = sorted(adata.obs[celltype_var].unique())
     genes_union = set()
     for celltype in celltypes:
         key = celltype.replace(" ", "_")
@@ -997,6 +1017,8 @@ def run_analysis(b):
     template = template.replace('VOLCANO_CELLTYPES_PLACEHOLDER', json.dumps(celltypes))
     template = template.replace('DGE_DATA_PLACEHOLDER', json.dumps(dge_payload))
     template = template.replace('DGE_CELLTYPES_PLACEHOLDER', json.dumps(celltypes))
+    template = template.replace('BTM_DATA_PLACEHOLDER', json.dumps(btm_plot_dict))
+    template = template.replace('BTM_CELLTYPES_PLACEHOLDER', json.dumps(celltypes))
     html = SecTemplate(template)
 
     ts = datetime.now()
@@ -1021,8 +1043,6 @@ def run_analysis(b):
         "TOP_MARKERS": json.dumps(pack_json(top_markers_template)),
         "CTYPES": json.dumps(pack_json(ctypes_dict)),
         "ENRICH": json.dumps(enrich_dict),
-        "TF_MARKERS": json.dumps(source_markers),
-        "TF_SCORES": json.dumps(tf_enrich_dict),
         "LEIDEN": json.dumps(leiden),
         "UMAP_X": json.dumps(pack_array(umap_x)),
         "UMAP_Y": json.dumps(pack_array(umap_y)),

@@ -813,22 +813,27 @@ def run_analysis(b):
             b64, vmin, vmax = pack_quantized_full(score_tf_df[tf].astype(np.float32).to_numpy())
             tf_enrich_dict[tf] = {"data": b64, "vmin": vmin, "vmax": vmax}
 
-    # Union of marker genes --------------------------------------------------
+    # Union of EdgeR marker genes --------------------------------------------
+    celltypes = sorted(adata.obs[celltype_var].unique())
     genes_union = set()
-    for method in marker_dict.values():
-        for records in method.values():
-            for r in records:
-                genes_union.add(r["names"])
-    for records in top_markers_dict.values():
-        for r in records:
-            genes_union.add(r["names"])
+    for celltype in celltypes:
+        key = celltype.replace(" ", "_")
+        res_path = Path('/content/edger_results') / f"{key}_{contrast_var}_edgeR_results.csv"
+        res_df = pd.read_csv(res_path)
+        if 'gene_symbol' not in res_df.columns:
+            res_df['gene_symbol'] = res_df.index.astype(str)
+        genes_union.update(
+            res_df.loc[res_df['FDR'] < 0.05, 'gene_symbol'].astype(str)
+        )
     if not genes_union:
         genes_union = set(adata.var_names)
 
     genes_for_html = (
-    {_base_gene(g) for g in genes_union} if use_subset else set(adata.var_names))
-    # Ensure stable ordering even if gene identifiers contain non-strings
-    genes_for_html = sorted(map(str, genes_for_html))
+        {_base_gene(g) for g in genes_union} if use_subset else set(adata.var_names))
+    # Ensure stable ordering and keep only symbols present in the AnnData object
+    genes_for_html = sorted(
+        g for g in map(str, genes_for_html) if g in adata.var_names
+    )
     adata_subset = adata[:, genes_for_html].copy()
 
     # Gene‑wise expression vectors + vmin/vmax (20‑99 % quantiles) -----------

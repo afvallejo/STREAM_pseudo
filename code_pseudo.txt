@@ -935,25 +935,37 @@ def run_analysis(b):
         celltype = celltype.replace(" ", "_")
         res_path = Path('/content/edger_results') / f"{celltype}_{contrast_var}_edgeR_results.csv"
         res_df = pd.read_csv(res_path)
+        symbols = res_df['gene_symbol'] if 'gene_symbol' in res_df.columns else res_df.index.astype(str)
         logfc = res_df['log2FoldChange'] if 'log2FoldChange' in res_df.columns else res_df['logFC']
         y = -np.log10(res_df['FDR'])
         sig = res_df['FDR'] < 0.05
         volcano_traces = [
-            {"type":"scattergl","mode":"markers","x":logfc[~sig].tolist(),"y":y[~sig].tolist(),"name":"FDR≥0.05","marker":{"color":"#bbb","size":4,"opacity":0.6}},
-            {"type":"scattergl","mode":"markers","x":logfc[sig].tolist(),"y":y[sig].tolist(),"name":"FDR<0.05","marker":{"color":"#d62728","size":4,"opacity":0.6}},
+            {"type":"scattergl","mode":"markers","x":logfc[~sig].tolist(),"y":y[~sig].tolist(),"text":symbols[~sig].tolist(),
+             "customdata":symbols[~sig].tolist(),"hovertemplate":"%{text}<extra></extra>","name":"FDR≥0.05",
+             "marker":{"color":"#bbb","size":4,"opacity":0.6}},
+            {"type":"scattergl","mode":"markers","x":logfc[sig].tolist(),"y":y[sig].tolist(),"text":symbols[sig].tolist(),
+             "customdata":symbols[sig].tolist(),"hovertemplate":"%{text}<extra></extra>","name":"FDR<0.05",
+             "marker":{"color":"#d62728","size":4,"opacity":0.6}},
         ]
         pb_counts = pd.read_csv(Path('/content/Pseudobulk') / f"{celltype}_pseudobulk_counts.csv", index_col=0)
         meta = pd.read_csv(Path('/content/Pseudobulk') / f"{celltype}_metadata.csv")
         groups = meta[Group_var].astype(str).tolist()
-        lib_sizes = pb_counts.sum(axis=0).to_numpy()
-        log_counts = np.log1p(lib_sizes)
-        box_traces = []
-        for grp in sorted(set(groups)):
-            idx = [i for i,g in enumerate(groups) if g==grp]
-            box_traces.append({"type":"box","y":log_counts[idx].tolist(),"name":grp})
+        group_names = sorted(set(groups))
+        default_gene = symbols.iloc[0] if len(symbols) else None
+        box_data = {}
+        if default_gene in pb_counts.index:
+            counts = pb_counts.loc[default_gene]
+            traces = []
+            for grp in group_names:
+                idx = [i for i, g in enumerate(groups) if g == grp]
+                traces.append({"type": "box", "y": np.log1p(counts.iloc[idx]).tolist(), "name": grp})
+            box_data[default_gene] = traces
         volcano_payload[celltype] = {
             "volcanoTraces": volcano_traces,
-            "boxTraces": box_traces,
+            "boxData": box_data,
+            "groupLabel": Group_var,
+            "defaultGene": default_gene,
+            "countUrl": f"/counts/{celltype}",
         }
     template_path = Path("template.html")
     with template_path.open(encoding="utf-8") as f:

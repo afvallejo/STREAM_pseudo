@@ -51,7 +51,7 @@
   }
   /* Card-like plot and table frames (no markup changes needed) */
   [id$="Plot_§DOM"], [id^="clusterPlot_"], [id^="genePlot_"], [id^="markerUMAP_"],
-  [id^="topMarkerUMAP_"], [id^="enrichUMAP_"], [id^="enrichViolin_"], #tfBarplot,
+  [id^="topMarkerUMAP_"], [id^="enrichUMAP_"], [id^="enrichViolin_"], #btmPlot,
     [id^="coexprPlot_§DOM"], #compBar, #dirichletForest{
       background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
       box-shadow:var(--shadow); padding: var(--space-2);
@@ -215,7 +215,7 @@
     <a class="nav-link" data-tab="enrich" href="#">Predicted annotation</a>
   </li>
   <li class="nav-item">
-    <a class="nav-link" data-tab="tf" href="#">TF enrichment</a>
+    <a class="nav-link" data-tab="btm" href="#">BTM enrichment</a>
   </li>
   <li class="nav-item">
     <a class="nav-link" data-tab="coexpr" href="#">Co-expression</a>
@@ -368,14 +368,19 @@
       </div>
     </div>
   </div>
-  <div id="tf" class="tabpane">
+  <div id="btm" class="tabpane">
     <div class="d-flex gap-2 align-items-center mb-2">
-      <label class="form-label mb-0" for="tfCelltype">Cell type</label>
-      <select id="tfCelltype" class="form-select form-select-sm" style="max-width:130px"></select>
+      <label class="form-label mb-0" for="btmCelltype">Cell type</label>
+      <select id="btmCelltype" class="form-select form-select-sm" style="max-width:130px"></select>
+      <label class="form-label mb-0" for="btmViz">Plot</label>
+      <select id="btmViz" class="form-select form-select-sm" style="max-width:120px">
+        <option value="bar">barplot</option>
+        <option value="dot">dotplot</option>
+      </select>
     </div>
     <div class="row">
       <div class="col-md-6">
-        <div id="tfBarplot" class="plot-area"></div>
+        <div id="btmPlot" class="plot-area"></div>
       </div>
       <div class="col-md-6"></div>
     </div>
@@ -616,12 +621,11 @@ E2F1</textarea>
         cell types per cluster as suggestions, not hard labels.
       </p>
 
-      <h5 class="mt-3">Transcription-factor programs</h5>
+      <h5 class="mt-3">BTM programs</h5>
       <p class="mb-2">
-        TF activity is estimated with decoupler ULM using the human <strong>CollecTRI</strong> regulon network.
-        We compute per-cell TF scores, then rank TFs per cluster (same statistics as above) and retain the top 5 TFs
-        as “program markers.” The TF tab shows a UMAP of the selected TF’s activity and a violin panel with
-        cluster-wise distributions.
+        BTM activity is estimated with decoupler ULM using the <strong>BTM</strong> gene-set network.
+        For each cell type we derive module scores from EdgeR log ratios and keep the top 10 modules.
+        The BTM tab renders these modules as bar or dot plots.
       </p>
 
       <h5 class="mt-3">Co-expression &amp; gene-set analysis</h5>
@@ -645,10 +649,10 @@ E2F1</textarea>
         If enabled at build time (“Generate biology insights”), we produce cluster-wise narrative summaries with a
         large language model (Gemini family with automatic fallbacks). <em>Only</em> cluster-level summaries are
         provided to the model: cluster sizes; neighborhood-aware markers; method-specific marker tables; the
-        per-cluster PanglaoDB enrichment ranks; and the top TFs. Raw counts or per-cell expression matrices are
+        per-cluster PanglaoDB enrichment ranks; and the top modules. Raw counts or per-cell expression matrices are
         <em>not</em> sent. The model returns concise Markdown with a proposed label (± a refined subtype),
         confidence (High/Medium/Low), and supporting markers. Treat AI text as suggestive and validate against
-        the Markers, Predicted annotation, and TF tabs.
+        the Markers, Predicted annotation, and BTM tab.
       </p>
 
       <details class="mt-2">
@@ -698,7 +702,7 @@ label, confidence (High/Medium/Low), and key markers supporting the call.</pre>
     <ul class="about-mission mb-0">
       <li><strong>Accessible bioinformatics:</strong> zero-install, point-and-click dashboards that work offline.</li>
       <li><strong>Ai assisted annotation:</strong> LLM-assisted, cluster-wise summaries with transparent prompts & inputs.</li>
-      <li><strong>Faster insights:</strong> opinionated defaults for QC, markers, enrichment and TF activity to speed up data mining.</li>
+      <li><strong>Faster insights:</strong> opinionated defaults for QC, markers, enrichment and BTM activity to speed up data mining.</li>
       <li><strong>Reproducible & transparent:</strong> embedded metadata, versioned templates, and explicit sources for enrichment.</li>
       <li><strong>Shareable results:</strong> a single HTML file you can send to collaborators or attach to a preprint.</li>
     </ul>
@@ -713,7 +717,7 @@ label, confidence (High/Medium/Low), and key markers supporting the call.</pre>
           <li class="mb-2"><span class="badge bg-light text-dark border me-2">QC</span> gating, batch view, per-cluster summaries</li>
           <li class="mb-2"><span class="badge bg-light text-dark border me-2">Markers</span> Wilcoxon / t-test + neighborhood-aware markers</li>
           <li class="mb-2"><span class="badge bg-light text-dark border me-2">Enrichment</span> PanglaoDB-based cell-type scoring</li>
-          <li class="mb-2"><span class="badge bg-light text-dark border me-2">TF</span> CollecTRI ULM programs per cluster</li>
+          <li class="mb-2"><span class="badge bg-light text-dark border me-2">BTM</span> ULM programs per cell type</li>
           <li class="mb-2"><span class="badge bg-light text-dark border me-2">Co-expression</span> bivariate & ratio modes with contours</li>
           <li><span class="badge bg-light text-dark border me-2">Insights</span> optional AI-assisted, cluster-wise summaries</li>
         </ul>
@@ -774,7 +778,7 @@ label, confidence (High/Medium/Low), and key markers supporting the call.</pre>
           <div class="small">
             <p class="mb-2"><strong>Disclaimer.</strong> STREAM is a research and education tool. It is not intended for clinical, diagnostic, or patient-management decisions.</p>
             <ul class="mb-2">
-              <li><strong>AI Insights (if enabled)</strong> are LLM-generated summaries that can be incomplete or incorrect; always validate with markers, enrichment and TF activity.</li>
+              <li><strong>AI Insights (if enabled)</strong> are LLM-generated summaries that can be incomplete or incorrect; always validate with markers, enrichment and BTM activity.</li>
               <li><strong>Privacy.</strong> This dashboard does not upload sample-level data to a server; rendering happens in your browser. (If you need strict offline use, bundle local JS/CSS assets instead of CDNs.)</li>
               <li><strong>Upstream AI usage.</strong> If you tick “Generate biology insights” during build, cluster-level summaries (markers, enrichment ranks, etc.) are sent to the configured AI provider to produce text; raw counts are not sent.</li>
               <li><strong>No warranty.</strong> Provided “AS IS” without warranty of any kind; you are responsible for verifying results and for compliance with any data-use terms.</li>
@@ -935,8 +939,8 @@ const VOLCANO_DATA = VOLCANO_DATA_PLACEHOLDER;
 const VOLCANO_CELLTYPES = VOLCANO_CELLTYPES_PLACEHOLDER;
 const DGE_DATA = DGE_DATA_PLACEHOLDER;
 const DGE_CELLTYPES = DGE_CELLTYPES_PLACEHOLDER;
-const TF_BARPLOTS = TF_BARPLOTS_PLACEHOLDER;
-const TF_CELLTYPES = TF_CELLTYPES_PLACEHOLDER;
+const BTM_DATA = BTM_DATA_PLACEHOLDER;
+const BTM_CELLTYPES = BTM_CELLTYPES_PLACEHOLDER;
 
 const EXP_CACHE = new Map();
 const MAX_CACHE = 50;
@@ -1322,7 +1326,7 @@ function initComposition(){
   renderDirichlet();
 }
 
-let markersInit=false, topMarkersInit=false, enrichInit=false, tfInit=false, qcOverviewInit=false, qcPerClusterInit=false, compositionInit=false, volcanoInit=false, dgeInit=false, biologyInit=false;
+let markersInit=false, topMarkersInit=false, enrichInit=false, btmInit=false, qcOverviewInit=false, qcPerClusterInit=false, compositionInit=false, volcanoInit=false, dgeInit=false, biologyInit=false;
 const CONTEXT_BUDGET=20;
 let currentTab=null,currentSub='';
 let umapObsPurged=false,qcOverviewPurged=false,qcPerClusterPurged=false;
@@ -2458,23 +2462,25 @@ function drawCoexpr(){
     updateLegend(mode, gA, gB);
 }
 
-function initTF(){
-  const sel=document.getElementById('tfCelltype');
-  TF_CELLTYPES.forEach(ct=>{
+function initBTM(){
+  const sel=document.getElementById('btmCelltype');
+  BTM_CELLTYPES.forEach(ct=>{
     const opt=document.createElement('option'); opt.value=ct; opt.textContent=ct; sel.appendChild(opt);
   });
-  sel.addEventListener('change', renderTF);
+  sel.addEventListener('change', renderBTM);
+  document.getElementById('btmViz').addEventListener('change', renderBTM);
 }
 
-function renderTF(){
-  const ct=document.getElementById('tfCelltype').value;
-  const b64=TF_BARPLOTS[ct];
-  const div=document.getElementById('tfBarplot');
-  if(b64){
-    div.innerHTML = `<img src="data:image/png;base64,${b64}" class="img-fluid"/>`;
-  } else {
-    div.innerHTML = '';
-  }
+function renderBTM(){
+  const ct=document.getElementById('btmCelltype').value;
+  const mode=document.getElementById('btmViz').value;
+  const d=BTM_DATA[ct];
+  const div=document.getElementById('btmPlot');
+  if(!d){ div.innerHTML=''; return; }
+  const trace = mode==='dot'
+    ? {type:'scatter', mode:'markers', x:d.values, y:d.names, marker:{size:8}}
+    : {type:'bar', x:d.values, y:d.names, orientation:'h'};
+  Plotly.newPlot(div,[trace],{...PLOTLY_THEME.layout, margin:{l:100, t:30}},PLOTLY_THEME.config);
 }
 
 function initVolcano(){
@@ -2592,7 +2598,7 @@ function showTab(tab, sub){
   if(tab==='markers'&&!markersInit){populateMarkerSelectors(); markersInit=true;}
   if(tab==='topmarkers'&&!topMarkersInit){populateTopMarkerClusters(); topMarkersInit=true;}
   if(tab==='enrich'&&!enrichInit){populateEnrichClusters(); enrichInit=true;}
-  if(tab==='tf'&&!tfInit){initTF(); tfInit=true;}
+  if(tab==='btm'&&!btmInit){initBTM(); btmInit=true;}
   if(tab==='composition'&&!compositionInit){initComposition(); compositionInit=true;}
   if(tab==='volcano' && !volcanoInit){ initVolcano(); volcanoInit=true; }
   if(tab==='dge' && !dgeInit){ initDGE(); dgeInit=true; }
@@ -2603,7 +2609,7 @@ function showTab(tab, sub){
   if(tab==='markers' && lastMarkerGene) drawMarkerGene(lastMarkerGene);
   if(tab==='topmarkers' && lastTopMarkerGene) drawTopMarkerGene(lastTopMarkerGene);
   if(tab==='enrich') drawEnrich();
-  if(tab==='tf') renderTF();
+  if(tab==='btm') renderBTM();
   if(tab==='coexpr') drawCoexpr();
   if(tab==='volcano') renderVolcano();   // re-draw when returning
   if(tab==='dge') renderDGE();
@@ -2676,17 +2682,16 @@ const HELP_CONTENT={
 <p><strong>Panels:</strong> Left = per-cell enrichment (UMAP), Right = per-cluster scores (violin/table).</p>
 <p><strong>How to use</strong></p>
 <p>Select a Cluster to view top predicted labels.</p>
-<p>Cross-check with Marker genes and TF Enrichment before finalising names.</p>
+<p>Cross-check with Marker genes and BTM Enrichment before finalising names.</p>
 <p><strong>Tips</strong></p>
 <p>Treat predictions as guidance; verify with multiple evidence sources.</p>`,
-  tf:`<h5>TF Enrichment</h5>
-<p><strong>Purpose:</strong> Explore transcription-factor activity programmes across clusters.</p>
-<p><strong>Panels:</strong> Left = TF activity on UMAP, Right = distribution by cluster.</p>
+  btm:`<h5>BTM Enrichment</h5>
+<p><strong>Purpose:</strong> Explore Blood Transcription Module activity across clusters.</p>
+<p><strong>Panels:</strong> Left = module activity plot, Right = reserved for future use.</p>
 <p><strong>How to use</strong></p>
-<p>Pick a Cluster and TF (or rank TFs by cluster).</p>
-<p>Inspect UMAP patterns and cluster-level distributions together.</p>
+<p>Select a cell type and visualisation to view top modules.</p>
 <p><strong>Tips</strong></p>
-<p>Combine TF programmes with marker genes to strengthen annotations.</p>`,
+<p>Use bar or dot plots to inspect key modules per cell type.</p>`,
   coexpr:`<h5>Co-expression</h5>
 <p><strong>Purpose:</strong> Examine joint expression of two genes or their ratio.</p>
 <p><strong>Modes</strong></p>
@@ -2749,7 +2754,7 @@ const HELP_CONTENT={
 <p><strong>What’s included</strong></p>
 <p>Canonical label / fine label / confidence</p>
 <p>Key markers (effect size &amp; specificity aware)</p>
-<p>Supporting evidence: neighbour-aware markers, TFs/regulons, pathways/signatures, co-expression</p>
+<p>Supporting evidence: neighbour-aware markers, BTM modules, pathways/signatures, co-expression</p>
 <p>Notes: composition shifts and QC outliers</p>`
 };
 if(HAS_PROT){
@@ -2819,10 +2824,10 @@ const TOUR_STEPS={
     "2. Examine enrichment on the UMAP.",
     "3. Review score distributions."
   ],
-  tf:[
-    "1. Pick a cluster and transcription factor.",
-    "2. View TF activity on the UMAP.",
-    "3. Read per-cluster distribution."
+  btm:[
+    "1. Select a cell type.",
+    "2. Choose bar or dot visualisation.",
+    "3. Review top modules."
   ],
   coexpr:[
     "1. Enter Gene A and Gene B.",

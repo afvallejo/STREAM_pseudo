@@ -790,11 +790,11 @@ def run_analysis(b):
             b64, vmin, vmax = pack_quantized_full(score_df[ct].astype(np.float32).to_numpy())
             enrich_dict[ct] = {"data": b64, "vmin": vmin, "vmax": vmax}
 
-    # Transcription factor enrichment ---------------------------------------
+    # BTM enrichment --------------------------------------------------------
     celltypes = sorted(adata.obs[celltype_var].unique())
     net = dc.pp.read_gmt("/content/BTM_for_GSEA_20131008_fixed.gmt")
     net = net.drop_duplicates(subset=["source", "target"])
-    tf_barplot_dict = {}
+    btm_plot_dict = {}
     source_markers = {}
     for celltype in celltypes:
         key = celltype.replace(" ", "_")
@@ -825,15 +825,14 @@ def run_analysis(b):
         if n_nonfinite:
             print(f"[clean] data: replacing {n_nonfinite} non-finite values with 0.")
         data = data.replace([np.inf, -np.inf], np.nan).fillna(0.0)
-        tf_acts, tf_padj = dc.mt.ulm(data=data, net=net)
-        msk = (tf_padj.T < 0.05).iloc[:, 0]
-        tf_acts = tf_acts.loc[:, msk]
-        fig, ax = plt.subplots(figsize=(3, 5))
-        dc.pl.barplot(data=tf_acts, name=contrast_var, top=10, figsize=(3, 5), ax=ax)
-        buf = io.BytesIO()
-        fig.savefig(buf, format='png', bbox_inches='tight')
-        plt.close(fig)
-        tf_barplot_dict[celltype] = base64.b64encode(buf.getvalue()).decode('utf-8')
+        btm_acts, btm_padj = dc.mt.ulm(data=data, net=net)
+        msk = btm_padj.loc[:, contrast_var] < 0.05
+        btm_acts = btm_acts[msk]
+        top = btm_acts[contrast_var].nlargest(10)
+        btm_plot_dict[celltype] = {
+            "names": top.index.tolist(),
+            "values": top.to_numpy().tolist(),
+        }
 
     # Union of EdgeR marker genes --------------------------------------------
     genes_union = set()
@@ -1018,8 +1017,8 @@ def run_analysis(b):
     template = template.replace('VOLCANO_CELLTYPES_PLACEHOLDER', json.dumps(celltypes))
     template = template.replace('DGE_DATA_PLACEHOLDER', json.dumps(dge_payload))
     template = template.replace('DGE_CELLTYPES_PLACEHOLDER', json.dumps(celltypes))
-    template = template.replace('TF_BARPLOTS_PLACEHOLDER', json.dumps(tf_barplot_dict))
-    template = template.replace('TF_CELLTYPES_PLACEHOLDER', json.dumps(celltypes))
+    template = template.replace('BTM_DATA_PLACEHOLDER', json.dumps(btm_plot_dict))
+    template = template.replace('BTM_CELLTYPES_PLACEHOLDER', json.dumps(celltypes))
     html = SecTemplate(template)
 
     ts = datetime.now()

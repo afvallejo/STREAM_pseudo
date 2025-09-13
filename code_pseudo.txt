@@ -964,7 +964,14 @@ def run_analysis(b):
             traces = []
             for grp in group_names:
                 idx = [i for i,g in enumerate(groups) if g==grp]
-                traces.append({"type":"box","y":np.log1p(counts.iloc[idx]).tolist(),"name":grp})
+                traces.append({
+                    "type": "box",
+                    "y": np.log1p(counts.iloc[idx]).tolist(),
+                    "name": grp,
+                    "boxpoints": "all",
+                    "jitter": 0.4,
+                    "pointpos": 0,
+                })
             gene_box[gene] = traces
         volcano_payload[celltype] = {
             "volcanoTraces": volcano_traces,

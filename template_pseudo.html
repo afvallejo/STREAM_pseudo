@@ -514,8 +514,8 @@ E2F1</textarea>
       <select id="volcanoCelltype" class="form-select form-select-sm" style="max-width:160px"></select>
     </div>
     <div class="row g-3">
-      <div class="col-md-6"><div id="volcanoBox" class="plot-area"></div></div>
       <div class="col-md-6"><div id="volcanoPlot" class="plot-area"></div></div>
+      <div class="col-md-6"><div id="volcanoBox" class="plot-area"></div></div>
     </div>
   </div>
   <div id="biology" class="tabpane">
@@ -2510,8 +2510,19 @@ function initVolcano(){
 async function renderVolcano(){
   const ct=document.getElementById('volcanoCelltype').value;
   const res = VOLCANO_DATA[ct];      // injected via code_pseudo.txt
-  Plotly.react('volcanoPlot', res.volcanoTraces, {...PLOTLY_THEME.layout, xaxis:{title:'log2FC'}, yaxis:{title:'-log10(FDR)'}}, PLOTLY_THEME.config);
-  Plotly.react('volcanoBox', res.boxTraces, {...PLOTLY_THEME.layout}, PLOTLY_THEME.config);
+  Plotly.react('volcanoPlot', res.volcanoTraces,
+    {...PLOTLY_THEME.layout, xaxis:{title:'log2FC'}, yaxis:{title:'-log10(FDR)'}, hovermode:'closest'},
+    PLOTLY_THEME.config);
+  const plot=document.getElementById('volcanoPlot');
+  plot.removeAllListeners && plot.removeAllListeners('plotly_click');
+  function updateBox(gene){
+    const traces = res.boxData[gene] || [];
+    Plotly.react('volcanoBox', traces,
+      {...PLOTLY_THEME.layout, xaxis:{title:res.groupLabel}, yaxis:{title:'log1p counts'}, title:gene},
+      PLOTLY_THEME.config);
+  }
+  updateBox(res.defaultGene);
+  plot.on('plotly_click', ev => { updateBox(ev.points[0].customdata); });
 }
 
 function parseHash(){

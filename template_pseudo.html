@@ -2590,7 +2590,12 @@ function renderDGE(){
     yaxis:{showline:true,mirror:true,ticks:'outside',tickwidth:1,tickcolor:'#000',automargin:true}
   };
   function updateBox(gene){
-    const traces=(res.boxData[gene]||[]).map(t=>({...t,boxpoints:'all',jitter:0.4}));
+    const traces = (res.boxData[gene] || []).map(t => ({
+      ...t,
+      boxpoints: 'all',
+      jitter: 0.4,
+      pointpos: 0,
+    }));
     Plotly.react('dgeBox', traces,
       {...baseLayout,xaxis:{...baseLayout.xaxis,title:res.groupLabel},yaxis:{...baseLayout.yaxis,title:'log1p counts'},title:gene},
       PLOTLY_THEME.config);

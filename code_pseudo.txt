@@ -951,21 +951,21 @@ def run_analysis(b):
         meta = pd.read_csv(Path('/content/Pseudobulk') / f"{celltype}_metadata.csv")
         groups = meta[Group_var].astype(str).tolist()
         group_names = sorted(set(groups))
-        gene_box = {}
-        for gene in symbols:
-            if gene not in pb_counts.index:
-                continue
-            counts = pb_counts.loc[gene]
+        default_gene = symbols.iloc[0] if len(symbols) else None
+        box_data = {}
+        if default_gene in pb_counts.index:
+            counts = pb_counts.loc[default_gene]
             traces = []
             for grp in group_names:
-                idx = [i for i,g in enumerate(groups) if g==grp]
-                traces.append({"type":"box","y":np.log1p(counts.iloc[idx]).tolist(),"name":grp})
-            gene_box[gene] = traces
+                idx = [i for i, g in enumerate(groups) if g == grp]
+                traces.append({"type": "box", "y": np.log1p(counts.iloc[idx]).tolist(), "name": grp})
+            box_data[default_gene] = traces
         volcano_payload[celltype] = {
             "volcanoTraces": volcano_traces,
-            "boxData": gene_box,
+            "boxData": box_data,
             "groupLabel": Group_var,
-            "defaultGene": symbols.iloc[0] if len(symbols) else None,
+            "defaultGene": default_gene,
+            "countUrl": f"/counts/{celltype}",
         }
     template_path = Path("template.html")
     with template_path.open(encoding="utf-8") as f:

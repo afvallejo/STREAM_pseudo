@@ -2565,17 +2565,21 @@ function renderDGE(){
   const res=DGE_DATA[ct];
   const tbl=$('#dgeTable');
   const fmt=x=>Number.parseFloat(x).toPrecision(3);
-  let html='<thead><tr><th>Gene</th><th>log2FoldChange</th><th>LR</th><th>FDR</th></tr></thead><tbody>';
-  res.table.forEach(r=>{html+=`<tr data-gene="${r.gene_symbol}"><td>${r.gene_symbol}</td><td>${fmt(r.log2FoldChange)}</td><td>${fmt(r.LR)}</td><td>${fmt(r.FDR)}</td></tr>`;});
+  res.table.sort((a,b)=>Math.abs(b.LR)-Math.abs(a.LR));
+  let html='<thead><tr><th>Gene</th><th>log2FoldChange</th><th>abs(LR)</th><th>FDR</th></tr></thead><tbody>';
+  res.table.forEach(r=>{
+    const lr=Math.abs(r.LR);
+    html+=`<tr data-gene="${r.gene_symbol}"><td>${r.gene_symbol}</td><td data-order="${r.log2FoldChange}">${fmt(r.log2FoldChange)}</td><td data-order="${lr}">${fmt(lr)}</td><td data-order="${r.FDR}">${fmt(r.FDR)}</td></tr>`;
+  });
   html+='</tbody>';
   tbl.html(html);
   if($.fn.DataTable){
     if(tbl.hasClass('dataTable')) tbl.DataTable().destroy();
     tbl.on('init.dt', function(){
-      $(this).closest('.dataTables_wrapper').find('.dt-buttons').addClass('float-end mb-2');
+      $(this).closest('.dataTables_wrapper').css({'max-height':'calc(100vh - 300px)','overflow':'auto'}).find('.dt-buttons').addClass('float-end mb-2');
     });
     const buttons = $.fn.DataTable.Buttons ? [{extend:'csv', filename:'dge_'+ct}] : [];
-    tbl.DataTable({paging:false,searching:false,info:false,fixedHeader:true,autoWidth:false,dom:'Bfrtip',buttons:buttons});
+    tbl.DataTable({paging:false,searching:true,info:false,ordering:true,order:[[2,'desc']],columnDefs:[{targets:[1,2,3],type:'num'}],fixedHeader:true,autoWidth:false,dom:'Bfrtip',buttons:buttons});
   }
   const baseLayout={
     ...PLOTLY_THEME.layout,
@@ -2586,7 +2590,7 @@ function renderDGE(){
     yaxis:{showline:true,mirror:true,ticks:'outside',tickwidth:1,tickcolor:'#000',automargin:true}
   };
   function updateBox(gene){
-    const traces=res.boxData[gene]||[];
+    const traces=(res.boxData[gene]||[]).map(t=>({...t,boxpoints:'all',jitter:0.4}));
     Plotly.react('dgeBox', traces,
       {...baseLayout,xaxis:{...baseLayout.xaxis,title:res.groupLabel},yaxis:{...baseLayout.yaxis,title:'log1p counts'},title:gene},
       PLOTLY_THEME.config);

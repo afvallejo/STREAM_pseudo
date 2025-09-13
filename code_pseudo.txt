@@ -933,8 +933,8 @@ def run_analysis(b):
     volcano_payload = {}
     dge_payload = {}
     for celltype in celltypes:
-        celltype = celltype.replace(" ", "_")
-        res_path = Path('/content/edger_results') / f"{celltype}_{contrast_var}_edgeR_results.csv"
+        key = celltype.replace(" ", "_")
+        res_path = Path('/content/edger_results') / f"{key}_{contrast_var}_edgeR_results.csv"
         res_df = pd.read_csv(res_path)
         if 'gene_symbol' not in res_df.columns:
             res_df['gene_symbol'] = res_df.index.astype(str)
@@ -952,8 +952,8 @@ def run_analysis(b):
              "customdata":symbols[sig].tolist(),"hovertemplate":"%{text}<extra></extra>","name":"FDR<0.05",
              "marker":{"color":"#d62728","size":4,"opacity":0.6}},
         ]
-        pb_counts = pd.read_csv(Path('/content/Pseudobulk') / f"{celltype}_pseudobulk_counts.csv", index_col=0)
-        meta = pd.read_csv(Path('/content/Pseudobulk') / f"{celltype}_metadata.csv")
+        pb_counts = pd.read_csv(Path('/content/Pseudobulk') / f"{key}_pseudobulk_counts.csv", index_col=0)
+        meta = pd.read_csv(Path('/content/Pseudobulk') / f"{key}_metadata.csv")
         groups = meta[Group_var].astype(str).tolist()
         group_names = sorted(set(groups))
         gene_box = {}

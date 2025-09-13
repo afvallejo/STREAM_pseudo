@@ -931,12 +931,17 @@ def run_analysis(b):
     # ─────────────────────────────────────────
     celltypes = sorted(adata.obs[celltype_var].unique().tolist())
     volcano_payload = {}
+    dge_payload = {}
     for celltype in celltypes:
-        celltype = celltype.replace(" ", "_")
-        res_path = Path('/content/edger_results') / f"{celltype}_{contrast_var}_edgeR_results.csv"
+        key = celltype.replace(" ", "_")
+        res_path = Path('/content/edger_results') / f"{key}_{contrast_var}_edgeR_results.csv"
         res_df = pd.read_csv(res_path)
-        symbols = res_df['gene_symbol'] if 'gene_symbol' in res_df.columns else res_df.index.astype(str)
-        logfc = res_df['log2FoldChange'] if 'log2FoldChange' in res_df.columns else res_df['logFC']
+        if 'gene_symbol' not in res_df.columns:
+            res_df['gene_symbol'] = res_df.index.astype(str)
+        if 'log2FoldChange' not in res_df.columns and 'logFC' in res_df.columns:
+            res_df['log2FoldChange'] = res_df['logFC']
+        symbols = res_df['gene_symbol']
+        logfc = res_df['log2FoldChange']
         y = -np.log10(res_df['FDR'])
         sig = res_df['FDR'] < 0.05
         volcano_traces = [
@@ -947,8 +952,8 @@ def run_analysis(b):
              "customdata":symbols[sig].tolist(),"hovertemplate":"%{text}<extra></extra>","name":"FDR<0.05",
              "marker":{"color":"#d62728","size":4,"opacity":0.6}},
         ]
-        pb_counts = pd.read_csv(Path('/content/Pseudobulk') / f"{celltype}_pseudobulk_counts.csv", index_col=0)
-        meta = pd.read_csv(Path('/content/Pseudobulk') / f"{celltype}_metadata.csv")
+        pb_counts = pd.read_csv(Path('/content/Pseudobulk') / f"{key}_pseudobulk_counts.csv", index_col=0)
+        meta = pd.read_csv(Path('/content/Pseudobulk') / f"{key}_metadata.csv")
         groups = meta[Group_var].astype(str).tolist()
         group_names = sorted(set(groups))
         gene_box = {}
@@ -967,11 +972,19 @@ def run_analysis(b):
             "groupLabel": Group_var,
             "defaultGene": symbols.iloc[0] if len(symbols) else None,
         }
+        dge_payload[celltype] = {
+            "table": res_df[['gene_symbol', 'log2FoldChange', 'LR', 'FDR']].to_dict(orient='records'),
+            "boxData": gene_box,
+            "groupLabel": Group_var,
+            "defaultGene": symbols.iloc[0] if len(symbols) else None,
+        }
     template_path = Path("template.html")
     with template_path.open(encoding="utf-8") as f:
         template = f.read()
     template = template.replace('VOLCANO_DATA_PLACEHOLDER', json.dumps(volcano_payload))
     template = template.replace('VOLCANO_CELLTYPES_PLACEHOLDER', json.dumps(celltypes))
+    template = template.replace('DGE_DATA_PLACEHOLDER', json.dumps(dge_payload))
+    template = template.replace('DGE_CELLTYPES_PLACEHOLDER', json.dumps(celltypes))
     html = SecTemplate(template)
 
     ts = datetime.now()

@@ -227,6 +227,9 @@
     <a class="nav-link" data-tab="volcano" href="#">Volcano</a>
   </li>
   <li class="nav-item">
+    <a class="nav-link" data-tab="dge" href="#">DGE</a>
+  </li>
+  <li class="nav-item">
     <a class="nav-link" data-tab="biology" href="#">AI Insights</a>
   </li>
   <li class="nav-item">
@@ -516,6 +519,20 @@ E2F1</textarea>
     <div class="row g-3">
       <div class="col-md-6"><div id="volcanoPlot" class="plot-area"></div></div>
       <div class="col-md-6"><div id="volcanoBox" class="plot-area"></div></div>
+    </div>
+  </div>
+  <div id="dge" class="tabpane">
+    <div class="d-flex gap-2 align-items-center mb-2">
+      <label class="form-label mb-0" for="dgeCelltype">Cell type</label>
+      <select id="dgeCelltype" class="form-select form-select-sm" style="max-width:160px"></select>
+    </div>
+    <div class="row g-3">
+      <div class="col-md-6">
+        <table id="dgeTable" class="table table-sm table-hover"></table>
+      </div>
+      <div class="col-md-6">
+        <div id="dgeBox" class="plot-area"></div>
+      </div>
     </div>
   </div>
   <div id="biology" class="tabpane">
@@ -933,6 +950,8 @@ if(COMPOSITION){
 
 const VOLCANO_DATA = VOLCANO_DATA_PLACEHOLDER;
 const VOLCANO_CELLTYPES = VOLCANO_CELLTYPES_PLACEHOLDER;
+const DGE_DATA = DGE_DATA_PLACEHOLDER;
+const DGE_CELLTYPES = DGE_CELLTYPES_PLACEHOLDER;
 
 const EXP_CACHE = new Map();
 const MAX_CACHE = 50;
@@ -1326,7 +1345,7 @@ function initComposition(){
   renderDirichlet();
 }
 
-let markersInit=false, topMarkersInit=false, enrichInit=false, tfInit=false, qcOverviewInit=false, qcPerClusterInit=false, compositionInit=false, volcanoInit=false, biologyInit=false;
+let markersInit=false, topMarkersInit=false, enrichInit=false, tfInit=false, qcOverviewInit=false, qcPerClusterInit=false, compositionInit=false, volcanoInit=false, dgeInit=false, biologyInit=false;
 const CONTEXT_BUDGET=20;
 let currentTab=null,currentSub='';
 let umapObsPurged=false,qcOverviewPurged=false,qcPerClusterPurged=false;
@@ -2533,6 +2552,49 @@ async function renderVolcano(){
   plot.on('plotly_click', ev => { updateBox(ev.points[0].customdata); });
 }
 
+function initDGE(){
+  const sel=document.getElementById('dgeCelltype');
+  DGE_CELLTYPES.forEach(ct=>{
+    const opt=document.createElement('option'); opt.value=ct; opt.textContent=ct; sel.appendChild(opt);
+  });
+  sel.addEventListener('change', renderDGE);
+}
+
+function renderDGE(){
+  const ct=document.getElementById('dgeCelltype').value;
+  const res=DGE_DATA[ct];
+  const tbl=$('#dgeTable');
+  const fmt=x=>Number.parseFloat(x).toPrecision(3);
+  let html='<thead><tr><th>Gene</th><th>log2FoldChange</th><th>LR</th><th>FDR</th></tr></thead><tbody>';
+  res.table.forEach(r=>{html+=`<tr data-gene="${r.gene_symbol}"><td>${r.gene_symbol}</td><td>${fmt(r.log2FoldChange)}</td><td>${fmt(r.LR)}</td><td>${fmt(r.FDR)}</td></tr>`;});
+  html+='</tbody>';
+  tbl.html(html);
+  if($.fn.DataTable){
+    if(tbl.hasClass('dataTable')) tbl.DataTable().destroy();
+    tbl.on('init.dt', function(){
+      $(this).closest('.dataTables_wrapper').find('.dt-buttons').addClass('float-end mb-2');
+    });
+    const buttons = $.fn.DataTable.Buttons ? [{extend:'csv', filename:'dge_'+ct}] : [];
+    tbl.DataTable({paging:false,searching:false,info:false,fixedHeader:true,autoWidth:false,dom:'Bfrtip',buttons:buttons});
+  }
+  const baseLayout={
+    ...PLOTLY_THEME.layout,
+    paper_bgcolor:'#ffffff',
+    plot_bgcolor:'#ffffff',
+    margin:{l:60,r:20,t:50,b:60},
+    xaxis:{showline:true,mirror:true,ticks:'outside',tickwidth:1,tickcolor:'#000',automargin:true},
+    yaxis:{showline:true,mirror:true,ticks:'outside',tickwidth:1,tickcolor:'#000',automargin:true}
+  };
+  function updateBox(gene){
+    const traces=res.boxData[gene]||[];
+    Plotly.react('dgeBox', traces,
+      {...baseLayout,xaxis:{...baseLayout.xaxis,title:res.groupLabel},yaxis:{...baseLayout.yaxis,title:'log1p counts'},title:gene},
+      PLOTLY_THEME.config);
+  }
+  $('#dgeTable tbody').off('click','tr').on('click','tr',function(){updateBox($(this).data('gene'));});
+  updateBox(res.defaultGene);
+}
+
 function parseHash(){
   const params=new URLSearchParams(window.location.hash.slice(1));
   return {tab:params.get('tab'), sub:params.get('sub')};
@@ -2565,6 +2627,7 @@ function showTab(tab, sub){
   if(tab==='tf'&&!tfInit){populateTFClusters(); tfInit=true;}
   if(tab==='composition'&&!compositionInit){initComposition(); compositionInit=true;}
   if(tab==='volcano' && !volcanoInit){ initVolcano(); volcanoInit=true; }
+  if(tab==='dge' && !dgeInit){ initDGE(); dgeInit=true; }
   if(tab==='biology'&&!biologyInit){drawBiologyUMAP(); biologyInit=true;}
   if(tab==='qc') showQCSub(sub||'Overview');
   if(tab==='umap') plotClusters();
@@ -2575,6 +2638,7 @@ function showTab(tab, sub){
   if(tab==='tf') drawTF();
   if(tab==='coexpr') drawCoexpr();
   if(tab==='volcano') renderVolcano();   // re-draw when returning
+  if(tab==='dge') renderDGE();
   if(tab==='qc'){
     const active=sub||'Overview';
     if(active==='Overview' && qcOverviewPurged){initQCOverview();}

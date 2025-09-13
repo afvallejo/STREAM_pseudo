@@ -830,8 +830,10 @@ def run_analysis(b):
 
     genes_for_html = (
         {_base_gene(g) for g in genes_union} if use_subset else set(adata.var_names))
-    # Ensure stable ordering even if gene identifiers contain non-strings
-    genes_for_html = sorted(map(str, genes_for_html))
+    # Ensure stable ordering and keep only symbols present in the AnnData object
+    genes_for_html = sorted(
+        g for g in map(str, genes_for_html) if g in adata.var_names
+    )
     adata_subset = adata[:, genes_for_html].copy()
 
     # Gene‑wise expression vectors + vmin/vmax (20‑99 % quantiles) -----------
